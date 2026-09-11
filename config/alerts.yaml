@@ -1,0 +1,42 @@
+rules:
+  - id: channel_valid_lead_rate_drop
+    name: 渠道有效线索率下降
+    metric_id: valid_lead_rate
+    dimension: channel
+    method: comparison
+    comparison: rolling_7d_average
+    direction: decrease
+    thresholds:
+      warning:
+        relative_change: -0.12
+      critical:
+        relative_change: -0.20
+    min_denominator: 100
+
+  - id: team_conversion_rate_drop
+    name: 团队支付转化率下降
+    metric_id: conversion_rate
+    dimension: team
+    method: comparison
+    comparison: rolling_7d_average
+    direction: decrease
+    thresholds:
+      warning:
+        relative_change: -0.15
+      critical:
+        relative_change: -0.25
+    min_denominator: 100
+
+  - id: product_refund_rate_rise
+    name: 产品退款率上升
+    metric_id: refund_rate_amount
+    dimension: product
+    method: comparison
+    comparison: rolling_7d_average
+    direction: increase
+    thresholds:
+      warning:
+        percentage_point_change: 0.04
+      critical:
+        percentage_point_change: 0.08
+    min_denominator: 1000

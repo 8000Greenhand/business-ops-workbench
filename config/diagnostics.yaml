@@ -1,0 +1,77 @@
+recipes:
+  valid_lead_rate:
+    diagnostic_type: ratio
+    components:
+      - valid_leads
+      - leads
+    contribution_metrics:
+      - valid_leads
+      - leads
+    contribution_comparison: previous_week
+    candidate_dimensions:
+      - business_line
+      - product
+      - team
+      - salesperson
+    suggested_checks:
+      - 核对有效线索数量变化
+      - 核对原始线索数量及结构变化
+      - 检查变化幅度较大的产品和承接团队
+    top_n: 3
+
+  conversion_rate:
+    diagnostic_type: ratio
+    components:
+      - paid_users
+      - valid_leads
+    contribution_metrics:
+      - paid_users
+      - valid_leads
+    contribution_comparison: previous_week
+    candidate_dimensions:
+      - business_line
+      - product
+      - channel
+      - salesperson
+    suggested_checks:
+      - 核对支付用户与有效线索数量变化
+      - 检查变化幅度较大的产品、渠道和人员记录
+    top_n: 3
+
+  refund_rate_amount:
+    diagnostic_type: ratio
+    components:
+      - refund_amount
+      - gross_revenue
+    contribution_metrics:
+      - refund_amount
+      - gross_revenue
+    contribution_comparison: previous_week
+    candidate_dimensions:
+      - channel
+      - team
+      - salesperson
+    suggested_checks:
+      - 核对退款金额与支付金额变化
+      - 检查变化幅度较大的渠道、团队和人员记录
+    top_n: 3
+
+  net_revenue:
+    diagnostic_type: additive
+    components:
+      - gross_revenue
+      - refund_amount
+    contribution_metrics:
+      - net_revenue
+      - gross_revenue
+      - refund_amount
+    contribution_comparison: previous_week
+    candidate_dimensions:
+      - business_line
+      - product
+      - channel
+      - team
+    suggested_checks:
+      - 核对支付金额与退款金额变化
+      - 检查净收入变化幅度较大的经营分组
+    top_n: 3

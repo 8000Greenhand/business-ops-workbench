@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtual environments and local settings
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+tmp/
+temp/
+*.tmp
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local business data (keep directory placeholders)
+data/raw/*
+!data/raw/.gitkeep
+data/staging/*
+!data/staging/.gitkeep
+data/marts/*
+!data/marts/.gitkeep
+data/exports/*
+!data/exports/.gitkeep
+
+# Reproducible Demo output (metadata remains tracked)
+data/demo/business_daily_demo.csv
+# YSB real business source files and extracted audit source
+/绩效与商家销售额汇总.rar
+/药师帮日报.xlsx
+/绩效与商家销售额汇总/
+/data/staging/ysb/
+/data/marts/ysb/

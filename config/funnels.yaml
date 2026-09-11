@@ -1,0 +1,23 @@
+funnels:
+  business_funnel:
+    name: 经营漏斗
+    stages:
+      - impressions
+      - leads
+      - valid_leads
+      - contacted_leads
+      - followed_leads
+      - paid_users
+    step_rates:
+      - numerator: leads
+        denominator: impressions
+      - numerator: valid_leads
+        denominator: leads
+      - numerator: contacted_leads
+        denominator: valid_leads
+      - numerator: paid_users
+        denominator: valid_leads
+    outcomes:
+      - gross_revenue
+      - refund_amount
+      - net_revenue

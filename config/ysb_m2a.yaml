@@ -1,0 +1,31 @@
+dataset: ysb_regional_merchant
+source: data/staging/ysb/stg_merchant_monthly_performance.csv
+grain: [month, merchant_key]
+metrics:
+  - gmv
+  - gmv_mom
+  - gmv_rank
+  - gmv_percentile
+  - cash_sales_amount
+  - cash_sales_mom
+  - order_count
+  - aftersales_order_count
+  - aftersales_rate
+  - coverage_status
+quality_statuses:
+  - VALID
+  - MISSING
+  - INSUFFICIENT_HISTORY
+  - UNRESOLVED_MERCHANT
+  - UNAVAILABLE_FOR_PERIOD
+thresholds:
+  method: empirical_distribution
+  quantiles:
+    decline: 0.10
+    high: 0.90
+    low_percentile: 0.20
+    rank_drop: 0.90
+    divergence: 0.75
+rules:
+  recent_missing: DATA_QUALITY_ALERT
+  business_signals: BUSINESS_ALERT

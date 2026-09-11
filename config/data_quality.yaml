@@ -1,0 +1,4 @@
+missing_warning_threshold: 0.05
+sample_rows_limit: 10
+duplicate_check_enabled: true
+consistency_checks_enabled: true

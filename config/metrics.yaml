@@ -1,0 +1,148 @@
+metrics:
+  impressions:
+    name: 曝光
+    type: atomic
+    field: impressions
+    aggregation: sum
+    format: integer
+    higher_is_better: true
+  leads:
+    name: 线索
+    type: atomic
+    field: leads
+    aggregation: sum
+    format: integer
+    higher_is_better: true
+  valid_leads:
+    name: 有效线索
+    type: atomic
+    field: valid_leads
+    aggregation: sum
+    format: integer
+    higher_is_better: true
+  contacted_leads:
+    name: 已联系线索
+    type: atomic
+    field: contacted_leads
+    aggregation: sum
+    format: integer
+    higher_is_better: true
+  followed_leads:
+    name: 已跟进线索
+    type: atomic
+    field: followed_leads
+    aggregation: sum
+    format: integer
+    higher_is_better: true
+  paid_users:
+    name: 支付用户
+    type: atomic
+    field: paid_users
+    aggregation: sum
+    format: integer
+    higher_is_better: true
+  paid_orders:
+    name: 支付订单
+    type: atomic
+    field: paid_orders
+    aggregation: sum
+    format: integer
+    higher_is_better: true
+  gross_revenue:
+    name: 支付金额
+    type: atomic
+    field: gross_revenue
+    aggregation: sum
+    format: currency
+    higher_is_better: true
+  refund_users:
+    name: 退款用户
+    type: atomic
+    field: refund_users
+    aggregation: sum
+    format: integer
+    higher_is_better: false
+  refund_orders:
+    name: 退款订单
+    type: atomic
+    field: refund_orders
+    aggregation: sum
+    format: integer
+    higher_is_better: false
+  refund_amount:
+    name: 退款金额
+    type: atomic
+    field: refund_amount
+    aggregation: sum
+    format: currency
+    higher_is_better: false
+  valid_lead_rate:
+    name: 有效线索率
+    type: ratio
+    numerator: valid_leads
+    denominator: leads
+    format: percentage
+    higher_is_better: true
+  contact_rate:
+    name: 联系率
+    type: ratio
+    numerator: contacted_leads
+    denominator: valid_leads
+    format: percentage
+    higher_is_better: true
+  follow_rate:
+    name: 跟进率
+    type: ratio
+    numerator: followed_leads
+    denominator: valid_leads
+    format: percentage
+    higher_is_better: true
+  conversion_rate:
+    name: 支付转化率
+    type: ratio
+    numerator: paid_users
+    denominator: valid_leads
+    format: percentage
+    higher_is_better: true
+  avg_order_value:
+    name: 客单价
+    type: ratio
+    numerator: gross_revenue
+    denominator: paid_users
+    format: currency
+    higher_is_better: true
+  refund_rate_amount:
+    name: 金额退款率
+    type: ratio
+    numerator: refund_amount
+    denominator: gross_revenue
+    format: percentage
+    higher_is_better: false
+  refund_rate_users:
+    name: 用户退款率
+    type: ratio
+    numerator: refund_users
+    denominator: paid_users
+    format: percentage
+    higher_is_better: false
+  refund_rate_orders:
+    name: 订单退款率
+    type: ratio
+    numerator: refund_orders
+    denominator: paid_orders
+    format: percentage
+    higher_is_better: false
+  net_revenue:
+    name: 净收入
+    type: difference
+    minuend: gross_revenue
+    subtrahend: refund_amount
+    format: currency
+    higher_is_better: true
+  revenue_per_lead:
+    name: 单线索收入
+    type: ratio
+    numerator_metric: net_revenue
+    denominator: leads
+    format: currency
+    higher_is_better: true

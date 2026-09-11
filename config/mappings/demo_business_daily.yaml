@@ -1,0 +1,23 @@
+mapping_name: demo_business_daily
+version: 1
+source:
+  file_type: csv
+fields:
+  date: date
+  business_line: business_line
+  product: product
+  channel: channel
+  region: region
+  team: team
+  salesperson: salesperson
+  impressions: impressions
+  leads: leads
+  valid_leads: valid_leads
+  contacted_leads: contacted_leads
+  followed_leads: followed_leads
+  paid_users: paid_users
+  paid_orders: paid_orders
+  gross_revenue: gross_revenue
+  refund_users: refund_users
+  refund_orders: refund_orders
+  refund_amount: refund_amount
