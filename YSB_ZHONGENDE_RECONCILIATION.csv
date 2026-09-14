@@ -1,0 +1,7 @@
+comparison,period,source_value,reference_value,difference,difference_rate,quality_note
+purchase_amount_vs_dashboard_a_gmv,2026-04,476865.08,476978.23,-113.15,-0.00023722,April nearly reconciles but metric definitions remain unconfirmed
+purchase_amount_vs_dashboard_a_gmv,2026-05,124226.34,90271.63,33954.71,0.37613933,May cutoff and metric definition differ
+purchase_amount_vs_dashboard_a_cash_sales,2026-04,476865.08,476864.78,0.30,0.00000063,Near exact reconciliation
+purchase_amount_vs_dashboard_a_cash_sales,2026-05,124226.34,128046.00,-3819.66,-0.02983037,Order export stops at May 30
+positive_order_count_vs_dashboard_a,2026-04,1932,1932,0,0.00000000,Exact reconciliation
+positive_order_count_vs_dashboard_a,2026-05,1059,1100,-41,-0.03727273,Order export stops at May 30

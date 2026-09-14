@@ -1,0 +1,37 @@
+name: DEFAULT_FILE_INTERNAL_POLICY
+status: USABLE_WITH_LIMITATION
+amount_tolerance: 0.011
+purchase_amount:
+  source_field: 进货金额
+  inclusion: numeric_values_all_statuses
+  display_alias: GMV candidate / 进货金额
+order_count:
+  key: order_id
+  inclusion: grouped_purchase_amount_gt_zero
+zero_amount:
+  line_handling: include_as_zero_and_flag
+  order_handling: exclude_from_order_count_and_flag
+active_entities:
+  inclusion: positive_line_purchase_amount
+status_filters: []
+observed_values:
+  order_status_raw:
+    - 交易完成
+    - 待收货
+  processing_status_raw:
+    - 配送完成
+    - 已退款
+    - 药品已出库
+    - 待处理
+    - 订单已接受
+    - 无法配送退款中
+  settlement_status_raw:
+    - 已结算
+    - 未结算
+    - 结算中
+unconfirmed_semantics:
+  - order_status_raw
+  - processing_status_raw
+  - processing_remark_raw
+  - settlement_status_raw
+

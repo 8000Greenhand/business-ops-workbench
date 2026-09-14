@@ -9,8 +9,8 @@ from ops_workbench.ui.components.common import (
 )
 
 
-def main() -> None:
-    """Render the workbench landing page and current dataset state."""
+def render_developer_home() -> None:
+    """Render the existing application shell inside the developer-tools group."""
     st.set_page_config(page_title=APP_TITLE, page_icon="📊")
     st.title(APP_TITLE)
     st.caption("经营诊断工作台 · v0.1.0")
@@ -22,6 +22,29 @@ def main() -> None:
         st.info("No dataset loaded")
         return
     st.dataframe(dataset_metadata_rows(snapshot), hide_index=True)
+
+
+def main() -> None:
+    """Route the formal business workbench without exposing developer pages."""
+    page = st.navigation(
+        {
+            "业务看板": [
+                st.Page(
+                    "pages/6_ysb_dashboard_a.py",
+                    title="区域商家经营",
+                    url_path="ysb_dashboard_a",
+                    default=True,
+                ),
+                st.Page(
+                    "pages/7_ysb_dashboard_b.py",
+                    title="单商家经营诊断",
+                    url_path="ysb_dashboard_b",
+                ),
+            ],
+        },
+        position="sidebar",
+    )
+    page.run()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,22 @@
+name: DASHBOARD_B_B2_FACT_RULES_V1
+max_core_facts: 5
+reconciliation_tolerance: 0.01
+loss_concentration_top_n: 5
+result_decomposition:
+  method: symmetric_two_factor
+  classification: sign_alignment
+customer_status_labels:
+  RETAINED: 两期持续活跃药店
+  CURRENT_ONLY: 本期活跃、上期未活跃药店
+  PREVIOUS_ONLY: 上期活跃、本期未活跃药店
+product_status_labels:
+  RETAINED_ACTIVE: 两期持续活跃商品
+  CURRENT_ONLY_ACTIVE: 本期活跃、上期未活跃商品
+  PREVIOUS_ONLY_ACTIVE: 上期活跃、本期未活跃商品
+do_not_infer:
+  FINANCIAL_REVENUE_DECLINE: 当前数据不能推出财务收入下降。
+  CUSTOMER_PERMANENT_LOSS: PREVIOUS_ONLY 不能推出客户永久流失。
+  PRICE_CAUSED_VOLUME_DECLINE: 当前阶段未分析价格，不能推出涨价导致销量下降。
+  STOCKOUT_CAUSED_PRODUCT_DECLINE: 当前数据不能推出缺货导致商品采购下降。
+  REFUND_CAUSED_PERFORMANCE_DECLINE: 状态语义尚未确认，不能推出退款导致进货金额下降。
+

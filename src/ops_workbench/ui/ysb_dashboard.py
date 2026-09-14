@@ -10,6 +10,16 @@ import pandas as pd
 
 QUALITY_ALERT = "DATA_QUALITY_ALERT"
 
+# This is presentation metadata for the persisted Dashboard A mart.  It does
+# not change the underlying monthly values or any M2A/M2B rule.
+PERIOD_QUALITY: dict[str, str] = {
+    "2026-03": "LIKELY_COMPLETE",
+    "2026-04": "LIKELY_COMPLETE",
+    "2026-05": "HISTORICAL_SNAPSHOT / PARTIAL_PERIOD",
+    "2026-06": "PARTIAL_PERIOD",
+}
+RELIABLE_COMPARISON_QUALITIES = {"COMPLETE", "LIKELY_COMPLETE"}
+
 
 def load_priority_mart(path: Path) -> pd.DataFrame:
     """Load the persisted priority mart without recalculating business rules."""
@@ -19,13 +29,37 @@ def load_priority_mart(path: Path) -> pd.DataFrame:
 
 
 def latest_complete_period(frame: pd.DataFrame) -> str:
-    """Return the latest period with usable current and prior GMV observations."""
+    """Return the latest reliable period with usable current and prior GMV."""
     for period in sorted(frame["month"].dropna().unique(), reverse=True):
+        if period_quality_status(str(period)) not in RELIABLE_COMPARISON_QUALITIES:
+            continue
         part = frame[frame["month"] == period]
         usable = part["current_gmv"].notna() & part["previous_gmv"].notna() & (part["merchant_mapping_status"] != "UNRESOLVED")
         if int(usable.sum()) > 0:
             return str(period)
-    raise ValueError("No complete business period exists in the YSB priority mart")
+    raise ValueError("No reliable business period exists in the YSB priority mart")
+
+
+def period_quality_status(period: str) -> str:
+    """Return the persisted-review quality status for a Dashboard A period."""
+    return PERIOD_QUALITY.get(str(period), "UNRESOLVED")
+
+
+def is_standard_comparison_period(period: str) -> bool:
+    """Return whether a period may be presented as a standard full-month comparison."""
+    return period_quality_status(period) in RELIABLE_COMPARISON_QUALITIES
+
+
+def period_quality_label(period: str) -> str:
+    """Return a business-friendly period label without exposing technical codes."""
+    status = period_quality_status(period)
+    if status in RELIABLE_COMPARISON_QUALITIES:
+        return "完整周期候选"
+    if "HISTORICAL_SNAPSHOT" in status:
+        return "历史快照"
+    if status == "PARTIAL_PERIOD":
+        return "部分周期"
+    return "待确认"
 
 
 def filter_dashboard(
@@ -68,7 +102,10 @@ def overview_metrics(frame: pd.DataFrame) -> dict[str, object]:
         "region_gmv_previous": previous,
         "gmv_mom": mom,
         "declining_merchants": int((comparable["gmv_change_abs"] < 0).sum()),
+        "growth_merchants": int((comparable["gmv_change_abs"] > 0).sum()),
         "priority_merchants": int((frame["priority_level"] == "PRIORITY").sum()),
+        "attention_merchants": int((frame["priority_level"] == "ATTENTION").sum()),
+        "watchlist_merchants": int((frame["priority_level"] == "WATCHLIST").sum()),
         "service_alerts": int(frame["diagnostic_dimensions"].fillna("").str.contains("Service", regex=False).sum()),
         "comparable_merchants": len(comparable),
     }
