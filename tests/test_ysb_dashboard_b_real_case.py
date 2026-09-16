@@ -11,6 +11,8 @@ from ops_workbench.diagnostics.ysb_merchant_case import (
     detect_case_capabilities,
 )
 from ops_workbench.ui.ysb_dashboard_b import (
+    activity_detail_summary,
+    activity_top_contributors,
     core_facts,
     current_metrics,
     has_capability,
@@ -57,6 +59,44 @@ def test_zhongende_traffic_and_activity_layers() -> None:
     assert activities.loc["拼团", "negative_contribution"] == pytest.approx(0.8720298)
     assert activities.loc["批购包邮", "amount_change"] == pytest.approx(-45_127.26)
     assert data.activity_mapping_rate == pytest.approx(1.0)
+
+    detail = data.activity_details
+    assert detail["activity_id"].dtype.name == "string"
+    assert detail["activity_id"].nunique() == 154
+    assert detail.groupby("activity_type")["activity_id"].nunique().to_dict() == {
+        "拼团": 142,
+        "批购包邮": 12,
+    }
+    assert detail["amount_change"].sum() == pytest.approx(
+        data.activities["amount_change"].sum()
+    )
+
+    summary = activity_detail_summary(data, "拼团")
+    assert summary == pytest.approx(
+        {
+            "activity_count": 142,
+            "negative_count": 85,
+            "positive_count": 53,
+            "flat_count": 4,
+            "top5_loss_concentration": 0.5606184011,
+        }
+    )
+    losses = activity_top_contributors(data, "拼团", positive=False)
+    growth = activity_top_contributors(data, "拼团", positive=True)
+    assert losses.head(5)["activity_id"].tolist() == [
+        "1129859298",
+        "974385766",
+        "974385814",
+        "1165953164",
+        "974385821",
+    ]
+    assert losses.head(5)["amount_change"].tolist() == pytest.approx(
+        [-71_601.51, -44_170.80, -43_932.50, -33_279.25, -28_662.90]
+    )
+    assert growth.head(3)["activity_id"].tolist() == ["1209902830", "1203607570", "1114638780"]
+    assert growth.head(3)["amount_change"].tolist() == pytest.approx(
+        [22_131.36, 21_924.22, 12_891.12]
+    )
 
 
 def test_capabilities_make_customer_unavailable_without_fabrication() -> None:

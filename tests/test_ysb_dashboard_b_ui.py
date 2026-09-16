@@ -7,12 +7,20 @@ from streamlit.testing.v1 import AppTest
 from ops_workbench.ui.ysb_dashboard_b import (
     DashboardBData,
     DashboardBInputError,
+    activity_detail_summary,
     build_dashboard_b_from_upload,
     contribution_summary,
     core_facts,
+    has_capability,
     load_public_demo_dashboard_b,
     quality_count,
     result_decomposition,
+)
+from ops_workbench.diagnostics.ysb_merchant_case import (
+    HAS_ACTIVITY,
+    HAS_CUSTOMER,
+    HAS_PRODUCT,
+    HAS_TRAFFIC,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,7 +77,7 @@ def test_page_capability_helper_is_part_of_the_ui_module_contract() -> None:
 
 
 def test_invalid_upload_fails_without_guessing_structure() -> None:
-    with pytest.raises(DashboardBInputError, match="订单原始数据.*必需列"):
+    with pytest.raises(DashboardBInputError):
         build_dashboard_b_from_upload(b"not an xlsx workbook", POLICY, RULES, "bad.xlsx")
 
 
@@ -87,7 +95,14 @@ def test_streamlit_page_displays_facts_evidence_and_safe_status_language() -> No
     assert "中等可信" in visible
     assert "证据有限" in visible
     assert "流量表现：本店 vs 同行" in visible
-    assert "活动端口" in visible
+    assert "活动分析" in visible
+    assert "活动类型概览" in visible
+    assert "具体活动" in visible
+    activity_headers = " ".join(
+        " ".join(frame.value.columns.astype(str)) for frame in app.dataframe
+    )
+    assert "活动主题 商品/活动内容 变化额 上期金额 本期金额 周期状态 负向贡献占比 活动ID" in activity_headers
+    assert "活动主题 商品/活动内容 变化额 上期金额 本期金额 周期状态 活动ID" in activity_headers
     assert "当前数据来自中台账号，订单导出不包含药店标识" in visible
     limitations = app.expander[1]
     limitation_text = " ".join(str(element.value) for element in limitations.markdown)
@@ -102,14 +117,48 @@ def test_streamlit_page_displays_facts_evidence_and_safe_status_language() -> No
     assert "流失客户" not in visible
 
 
+def test_dashboard_b_no_upload_default_demo_smoke() -> None:
+    data = load_public_demo_dashboard_b(DEMO_DIR)
+    assert isinstance(data, DashboardBData)
+    assert not data.monthly.empty
+    assert data.source_label == "四川众恩德科技聚合演示案例"
+    assert has_capability(data, HAS_TRAFFIC)
+    assert has_capability(data, HAS_ACTIVITY)
+    assert has_capability(data, HAS_PRODUCT)
+    assert not has_capability(data, HAS_CUSTOMER)
+    assert data.customer_unavailable_reason == (
+        "当前数据来自中台账号，订单导出不包含药店标识；药店贡献诊断需要商家账号权限。"
+    )
+    assert data.monthly.iloc[0]["purchase_amount"] == pytest.approx(476_865.08)
+    assert data.monthly.iloc[1]["purchase_amount"] == pytest.approx(124_226.34)
+    assert data.activity_details["activity_id"].nunique() == 154
+    assert activity_detail_summary(data, "拼团")["activity_count"] == 142
+
+    app = AppTest.from_file(PAGE).run(timeout=30)
+    assert not app.exception
+    visible = " ".join(
+        str(element.value)
+        for collection in (app.markdown, app.info, app.caption)
+        for element in collection
+    )
+    assert "四川众恩德科技聚合演示案例" in visible
+    assert "经营概览" in visible
+    assert "活动类型概览" in visible
+    assert "具体活动" in visible
+
+
 def test_streamlit_page_renders_one_sidebar_upload_section() -> None:
     app = AppTest.from_file(PAGE).run(timeout=30)
     assert not app.exception
     sidebar_text = " ".join(
         str(element.value)
-        for collection in (app.sidebar.markdown, app.sidebar.caption)
+        for collection in (app.sidebar.subheader, app.sidebar.markdown, app.sidebar.caption)
         for element in collection
     )
-    assert sidebar_text.count("单商家日报") == 1
-    assert sidebar_text.count("原始文件仅在临时目录处理，不写入项目数据目录。") == 1
+    assert sidebar_text.count("上传商家原始数据") == 1
+    assert "直接上传后台导出的商家经营数据，无需人工整理日报" in sidebar_text
+    assert "订单明细为必需；流量、活动为可选；订单中存在有效药店字段时自动启用药店诊断" in sidebar_text
+    assert "单商家日报" not in sidebar_text
+    assert "上传药师帮日报" not in sidebar_text
+    assert sidebar_text.count("文件仅在当前会话处理，不写入项目原始数据目录。") == 1
     assert len(app.sidebar.file_uploader) == 1

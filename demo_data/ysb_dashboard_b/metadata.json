@@ -9,5 +9,7 @@
     "HAS_TRAFFIC"
   ],
   "activity_mapping_rate": 1.0,
+  "activity_unmatched_snapshot_count": 2168,
+  "activity_display_name_variation_count": 7,
   "customer_unavailable_reason": "当前数据来自中台账号，订单导出不包含药店标识；药店贡献诊断需要商家账号权限。"
 }

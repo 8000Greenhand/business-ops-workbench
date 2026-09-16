@@ -24,18 +24,20 @@ from ops_workbench.ui.components.common import (
 from ops_workbench.ui.ysb_dashboard_b import (
     DashboardBData,
     DashboardBInputError,
-    build_dashboard_b_from_upload,
+    activity_detail_summary,
+    activity_top_contributors,
+    build_dashboard_b_from_uploads,
     contribution_summary,
     core_facts,
     current_metrics,
     has_capability,
     load_dashboard_b_marts,
     load_public_demo_dashboard_b,
-    load_real_case_dashboard_b,
     quality_count,
     result_decomposition,
     top_contributors,
 )
+from ops_workbench.diagnostics.ysb_dashboard_b_input import UploadedPayload
 from ops_workbench.diagnostics.ysb_merchant_case import (
     HAS_ACTIVITY,
     HAS_CUSTOMER,
@@ -48,17 +50,6 @@ ROOT = Path(__file__).resolve().parents[4]
 MART_DIR = ROOT / "data" / "marts" / "ysb"
 POLICY_PATH = ROOT / "config" / "ysb_dashboard_b_order_metric_policy.yaml"
 RULES_PATH = ROOT / "config" / "ysb_dashboard_b_diagnosis_rules.yaml"
-DEFAULT_CASE = {
-    "merchant_name": "四川众恩德科技",
-    "previous_period": "2026-04",
-    "current_period": "2026-05",
-    "order_path": ROOT / "data" / "raw" / "众恩德订单明细4-5月.csv",
-    "traffic_path": ROOT / "data" / "raw" / "众恩德流量4-5月.xlsx",
-    "activity_paths": (
-        ROOT / "data" / "raw" / "众恩德在架活动.csv",
-        ROOT / "data" / "raw" / "众恩德结束活动.csv",
-    ),
-}
 PUBLIC_DEMO_DIR = ROOT / "demo_data" / "ysb_dashboard_b"
 CUSTOMER_LABELS = {
     "RETAINED": "两期持续活跃药店",
@@ -79,6 +70,12 @@ EVIDENCE_LABELS = {"HIGH": "高可信", "MEDIUM": "中等可信", "LIMITED": "�
 QUALITY_LABELS = {
     "ORDER_STATUS_SEMANTICS_UNCONFIRMED": "订单状态口径尚未确认",
     "PRODUCT_MAPPING_LIMITATION": "商品映射存在限制",
+}
+ACTIVITY_STATUS_LABELS = {
+    "RETAINED_ACTIVITY": "两期都有成交",
+    "PREVIOUS_ONLY_ACTIVITY": "上期有、本期无成交",
+    "CURRENT_ONLY_ACTIVITY": "本期新增成交",
+    "ZERO_AMOUNT_ONLY": "仅零金额记录",
 }
 
 
@@ -128,43 +125,72 @@ def _business_fact_text(value: str) -> str:
     return value
 
 
-def _render_upload_section() -> object | None:
+def _render_upload_section() -> list[object]:
     """Render the Dashboard B upload controls exactly once per page run."""
-    st.sidebar.markdown("#### 单商家日报")
-    st.sidebar.caption("上传后沿用既有 B1/B2 pipeline。")
-    uploaded = st.sidebar.file_uploader("上传药师帮日报", type=["xlsx"])
-    st.sidebar.caption("原始文件仅在临时目录处理，不写入项目数据目录。")
+    st.sidebar.subheader("上传商家原始数据")
+    st.sidebar.markdown(
+        "直接上传后台导出的商家经营数据，无需人工整理日报。  \n"
+        "订单明细为必需；流量、活动为可选；订单中存在有效药店字段时自动启用药店诊断。"
+    )
+    uploaded = st.sidebar.file_uploader(
+        "选择 CSV / XLSX 文件",
+        type=["csv", "xlsx"],
+        accept_multiple_files=True,
+    )
+    st.sidebar.caption("文件仅在当前会话处理，不写入项目原始数据目录。")
     return uploaded
 
 
-def _get_data(uploaded: object | None) -> DashboardBData | None:
-    if uploaded is None:
-        try:
-            local_paths = (
-                DEFAULT_CASE["order_path"],
-                DEFAULT_CASE["traffic_path"],
-                *DEFAULT_CASE["activity_paths"],
-            )
-            if all(path.is_file() for path in local_paths):
-                return load_real_case_dashboard_b(**DEFAULT_CASE)
-            return load_public_demo_dashboard_b(PUBLIC_DEMO_DIR)
-        except DashboardBInputError as error:
-            st.error(str(error))
-            return None
+def _get_data(uploaded: list[object]) -> DashboardBData | None:
+    if not uploaded:
+        return _load_default_demo()
 
-    content = uploaded.getvalue()
-    digest = hashlib.sha256(content).hexdigest()
+    payloads = tuple(UploadedPayload(item.name, item.getvalue()) for item in uploaded)
+    digest_source = b"".join(
+        item.name.encode("utf-8") + b"\0" + item.content
+        for item in payloads
+    )
+    digest = hashlib.sha256(digest_source).hexdigest()
     cached = st.session_state.get("ysb_dashboard_b_upload")
     if cached and cached["digest"] == digest:
-        return cached["data"]
+        data = cached["data"]
+        _render_input_summary(data)
+        return data
     try:
-        with st.spinner("正在运行 B1/B2 诊断 pipeline…"):
-            data = build_dashboard_b_from_upload(content, POLICY_PATH, RULES_PATH, uploaded.name)
+        with st.spinner("正在识别并处理商家原始数据…"):
+            data = build_dashboard_b_from_uploads(payloads, POLICY_PATH, RULES_PATH)
+    except DashboardBInputError as error:
+        st.error(f"{error} 已恢复默认众恩德 Demo。")
+        return _load_default_demo()
+    st.session_state["ysb_dashboard_b_upload"] = {"digest": digest, "data": data}
+    _render_input_summary(data)
+    return data
+
+
+def _load_default_demo() -> DashboardBData | None:
+    """Load the aggregate-only default demo used whenever no valid upload exists."""
+    try:
+        return load_public_demo_dashboard_b(PUBLIC_DEMO_DIR)
     except DashboardBInputError as error:
         st.error(str(error))
         return None
-    st.session_state["ysb_dashboard_b_upload"] = {"digest": digest, "data": data}
-    return data
+
+
+def _render_input_summary(data: DashboardBData) -> None:
+    summary = data.input_summary
+    st.sidebar.caption("已识别")
+    st.sidebar.markdown("✓ 订单明细")
+    st.sidebar.markdown("✓ 流量数据" if has_capability(data, HAS_TRAFFIC) else "— 流量数据未提供")
+    st.sidebar.markdown(
+        f"✓ 活动数据 × {summary.activity_file_count}"
+        if has_capability(data, HAS_ACTIVITY)
+        else "— 活动数据未提供"
+    )
+    st.sidebar.markdown("✓ 药店维度" if summary.customer_available else "— 药店维度不可用")
+    if summary.legacy:
+        st.sidebar.caption("已自动兼容旧版药师帮日报。")
+    if summary.unknown_labels:
+        st.sidebar.caption(f"未识别文件：{'、'.join(summary.unknown_labels)}")
 
 
 def _overview(data: DashboardBData) -> None:
@@ -234,7 +260,7 @@ def _diagnosis_hero(data: DashboardBData) -> None:
 def _facts(data: DashboardBData) -> None:
     facts = core_facts(data)
     render_section_header("诊断要点", "以下内容直接呈现既有 B2 facts 与 B1 汇总，不生成经营建议。")
-    dimension_labels = {"RESULT": "经营结果", "TRAFFIC": "流量", "ACTIVITY": "活动端口", "PRODUCT": "商品", "CUSTOMER": "药店"}
+    dimension_labels = {"RESULT": "经营结果", "TRAFFIC": "流量", "ACTIVITY": "活动分析", "PRODUCT": "商品", "CUSTOMER": "药店"}
     for start in range(0, len(facts), 3):
         group = facts.iloc[start : start + 3]
         cards = st.columns(len(group), gap="small")
@@ -299,31 +325,124 @@ def _traffic(data: DashboardBData) -> None:
 
 
 def _activity(data: DashboardBData) -> None:
-    render_section_header("活动端口", "按订单明细中的活动类型汇总进货金额贡献。")
+    render_section_header("活动分析", "先查看活动类型，再下钻到订单中实际出现的具体活动。")
+    st.markdown("#### 活动类型概览")
     display = data.activities.rename(
         columns={
-            "activity_type": "活动端口", "previous_amount": "4月进货金额", "current_amount": "5月进货金额",
-            "amount_change": "金额变化", "change_rate": "变化率", "current_amount_share": "5月金额占比",
+            "activity_type": "活动类型", "previous_amount": "上期进货金额", "current_amount": "本期进货金额",
+            "amount_change": "金额变化", "change_rate": "变化率", "current_amount_share": "本期金额占比",
             "negative_contribution": "负向变化贡献度",
         }
     ).copy()
-    for column in ("4月进货金额", "5月进货金额", "金额变化"):
+    for column in ("上期进货金额", "本期进货金额", "金额变化"):
         display[column] = display[column].map(format_metric_value)
-    for column in ("变化率", "5月金额占比", "负向变化贡献度"):
+    for column in ("变化率", "本期金额占比", "负向变化贡献度"):
         display[column] = display[column].map(lambda value: "不可用" if pd.isna(value) else f"{float(value):.1%}")
     st.dataframe(
-        display[["活动端口", "4月进货金额", "5月进货金额", "金额变化", "变化率", "5月金额占比", "负向变化贡献度"]],
+        display[["活动类型", "上期进货金额", "本期进货金额", "金额变化", "变化率", "本期金额占比", "负向变化贡献度"]],
         hide_index=True,
         width="stretch",
-        column_config={"活动端口": st.column_config.TextColumn(width="large")},
+        column_config={"活动类型": st.column_config.TextColumn(width="large")},
     )
     top = data.activities.iloc[0]
     st.info(
         f"主要损失来自{top['activity_type']}：进货金额减少 {abs(float(top['amount_change'])) / 10_000:.2f} 万，"
-        f"占活动端口全部负向变化 {float(top['negative_contribution']):.1%}。"
+        f"占活动类型全部负向变化 {float(top['negative_contribution']):.1%}。"
     )
+
+    st.markdown("#### 具体活动")
+    options = data.activities["activity_type"].astype(str).tolist()
+    selected_type = st.selectbox("选择活动类型", options, index=0)
+    summary = activity_detail_summary(data, selected_type)
+    cards = st.columns(4)
+    with cards[0]:
+        render_metric_card("具体活动数", f"{summary['activity_count']:,}", selected_type)
+    with cards[1]:
+        render_metric_card("负向活动数", f"{summary['negative_count']:,}", "金额变化 < 0", "negative")
+    with cards[2]:
+        render_metric_card("正向活动数", f"{summary['positive_count']:,}", "金额变化 > 0", "positive")
+    with cards[3]:
+        render_metric_card(
+            "Top 5 Loss 集中度",
+            f"{float(summary['top5_loss_concentration']):.1%}",
+            f"金额无变化 {summary['flat_count']:,} 个",
+        )
+
+    loss_tab, growth_tab = st.tabs(["Top Loss", "Top Growth"])
+    with loss_tab:
+        _activity_detail_table(
+            activity_top_contributors(data, selected_type, positive=False),
+            positive=False,
+        )
+    with growth_tab:
+        _activity_detail_table(
+            activity_top_contributors(data, selected_type, positive=True),
+            positive=True,
+        )
     if data.activity_mapping_rate is not None:
-        st.caption(f"订单活动 ID 与活动快照的映射覆盖率：{data.activity_mapping_rate:.1%}。V1 保持活动类型层级。")
+        st.caption(
+            f"订单活动 ID 与活动快照的映射覆盖率：{data.activity_mapping_rate:.1%}。"
+            "活动状态如展示，仅代表当前上传快照，不代表比较月份的历史状态。"
+        )
+
+
+def _activity_detail_table(frame: pd.DataFrame, *, positive: bool) -> None:
+    """Present activity contributors with business labels before their stable ID."""
+    display = frame.copy()
+    display["活动主题"] = display["theme_name"].map(
+        lambda value: str(value).strip() if pd.notna(value) and str(value).strip() else "—"
+    )
+    display["商品/活动内容"] = display["display_name"].map(
+        lambda value: str(value).strip() if pd.notna(value) and str(value).strip() else "—"
+    )
+    display = display.rename(
+        columns={
+            "activity_id": "活动ID",
+            "product_code": "商品编码",
+            "previous_amount": "上期金额",
+            "current_amount": "本期金额",
+            "amount_change": "变化额",
+            "change_rate": "变化率",
+            "previous_orders": "上期订单数",
+            "current_orders": "本期订单数",
+            "period_status": "周期状态",
+            "negative_contribution": "负向贡献占比",
+            "current_snapshot_status": "当前快照状态",
+        }
+    )
+    display["周期状态"] = display["周期状态"].map(ACTIVITY_STATUS_LABELS)
+    for column in ("上期金额", "本期金额"):
+        display[column] = display[column].map(format_metric_value)
+    display["变化额"] = display["变化额"].map(_signed_activity_money)
+    display["负向贡献占比"] = display["负向贡献占比"].map(lambda value: f"{float(value):.1%}")
+    columns = ["活动主题", "商品/活动内容", "变化额", "上期金额", "本期金额", "周期状态"]
+    if not positive:
+        columns.append("负向贡献占比")
+    columns.append("活动ID")
+    st.dataframe(
+        display[columns],
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "活动主题": st.column_config.TextColumn(width="medium"),
+            "商品/活动内容": st.column_config.TextColumn(width="large"),
+            "变化额": st.column_config.TextColumn(width="small"),
+            "上期金额": st.column_config.TextColumn(width="small"),
+            "本期金额": st.column_config.TextColumn(width="small"),
+            "周期状态": st.column_config.TextColumn(width="medium"),
+            "负向贡献占比": st.column_config.TextColumn(width="small"),
+            "活动ID": st.column_config.TextColumn(width="medium"),
+        },
+    )
+
+
+def _signed_activity_money(value: object) -> str:
+    """Format an activity change with an explicit plus or minus sign."""
+    if pd.isna(value):
+        return "不可用"
+    amount = float(value)
+    prefix = "+" if amount > 0 else "-" if amount < 0 else ""
+    return f"{prefix}{format_metric_value(abs(amount))}"
 
 
 def _customer(data: DashboardBData) -> None:
@@ -450,6 +569,20 @@ def _evidence(data: DashboardBData) -> None:
             {"数据说明": "商品映射", "当前状态": product_conflict_text},
             {"数据说明": "药店贡献", "当前状态": data.customer_unavailable_reason or "可用"},
         ]
+        if data.activity_unmatched_snapshot_count:
+            rows.append(
+                {
+                    "数据说明": "活动快照",
+                    "当前状态": "活动快照中存在未出现在当前订单导出周期的活动记录；其不参与本期成交贡献计算。",
+                }
+            )
+        if data.activity_display_name_variation_count:
+            rows.append(
+                {
+                    "数据说明": "活动展示名称",
+                    "当前状态": "部分活动商品展示名称存在文案差异，不影响金额贡献计算。",
+                }
+            )
         st.dataframe(rows, hide_index=True, width="stretch")
         st.markdown("**当前系统识别相关经营事实，不自动推断因果。**")
         for statement in (
@@ -470,7 +603,7 @@ def main() -> None:
         return
     render_page_header(
         "单商家经营诊断",
-        "从经营结果依次查看流量、活动端口、商品和可用的药店事实。",
+        "从经营结果依次查看流量、活动分析、商品和可用的药店事实。",
         (f"商家：{data.merchant_name or data.source_label}", f"比较周期：{data.previous_period} → {data.current_period}", "数据口径：进货金额"),
     )
     _overview(data)
