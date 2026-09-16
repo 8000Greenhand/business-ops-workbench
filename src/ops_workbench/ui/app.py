@@ -25,25 +25,27 @@ def render_developer_home() -> None:
 
 
 def main() -> None:
-    """Route the formal business workbench without exposing developer pages."""
-    page = st.navigation(
-        {
-            "业务看板": [
-                st.Page(
-                    "pages/6_ysb_dashboard_a.py",
-                    title="区域商家经营",
-                    url_path="ysb_dashboard_a",
-                    default=True,
-                ),
-                st.Page(
-                    "pages/7_ysb_dashboard_b.py",
-                    title="单商家经营诊断",
-                    url_path="ysb_dashboard_b",
-                ),
-            ],
-        },
-        position="sidebar",
+    """Route the formal business workbench with explicit, reversible page links."""
+    dashboard_a = st.Page(
+        "pages/6_ysb_dashboard_a.py",
+        title="区域商家经营",
+        url_path="ysb_dashboard_a",
+        default=True,
     )
+    dashboard_b = st.Page(
+        "pages/7_ysb_dashboard_b.py",
+        title="单商家经营诊断",
+        url_path="ysb_dashboard_b",
+    )
+
+    page = st.navigation([dashboard_a, dashboard_b], position="hidden")
+
+    with st.sidebar:
+        st.markdown("#### 业务看板")
+        st.page_link(dashboard_a, label="区域商家经营", use_container_width=True)
+        st.page_link(dashboard_b, label="单商家经营诊断", use_container_width=True)
+        st.divider()
+
     page.run()
 
 
