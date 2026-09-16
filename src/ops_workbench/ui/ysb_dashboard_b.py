@@ -125,6 +125,48 @@ def load_real_case_dashboard_b(
     )
 
 
+def load_public_demo_dashboard_b(directory: Path) -> DashboardBData:
+    """Load the tracked aggregate-only Dashboard B public demo."""
+    try:
+        metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
+        monthly = pd.read_csv(directory / "monthly.csv")
+        products = pd.read_csv(directory / "products.csv")
+        facts = pd.read_csv(directory / "facts.csv")
+        quality = pd.read_csv(directory / "quality.csv")
+        traffic = pd.read_csv(directory / "traffic.csv")
+        activities = pd.read_csv(directory / "activities.csv")
+    except (OSError, ValueError, KeyError) as error:
+        raise DashboardBInputError(f"公开演示数据无法加载：{error}") from error
+
+    _require_fact_columns(facts)
+    customer_columns = [
+        "previous_month",
+        "current_month",
+        "customer_key",
+        "customer_name",
+        "previous_amount",
+        "current_amount",
+        "amount_change",
+        "period_status",
+    ]
+    return DashboardBData(
+        monthly=monthly,
+        customers=pd.DataFrame(columns=customer_columns),
+        products=products,
+        facts=facts,
+        quality=quality,
+        previous_period=str(metadata["previous_period"]),
+        current_period=str(metadata["current_period"]),
+        source_label=str(metadata["source_label"]),
+        merchant_name=str(metadata["merchant_name"]),
+        traffic=traffic,
+        activities=activities,
+        capabilities=frozenset(metadata["capabilities"]),
+        activity_mapping_rate=float(metadata["activity_mapping_rate"]),
+        customer_unavailable_reason=str(metadata["customer_unavailable_reason"]),
+    )
+
+
 def build_dashboard_b_from_upload(
     content: bytes,
     policy_path: Path,

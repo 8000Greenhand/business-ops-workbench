@@ -30,6 +30,7 @@ from ops_workbench.ui.ysb_dashboard_b import (
     current_metrics,
     has_capability,
     load_dashboard_b_marts,
+    load_public_demo_dashboard_b,
     load_real_case_dashboard_b,
     quality_count,
     result_decomposition,
@@ -58,6 +59,7 @@ DEFAULT_CASE = {
         ROOT / "data" / "raw" / "众恩德结束活动.csv",
     ),
 }
+PUBLIC_DEMO_DIR = ROOT / "demo_data" / "ysb_dashboard_b"
 CUSTOMER_LABELS = {
     "RETAINED": "两期持续活跃药店",
     "CURRENT_ONLY": "本期活跃、上期未活跃药店",
@@ -138,7 +140,14 @@ def _render_upload_section() -> object | None:
 def _get_data(uploaded: object | None) -> DashboardBData | None:
     if uploaded is None:
         try:
-            return load_real_case_dashboard_b(**DEFAULT_CASE)
+            local_paths = (
+                DEFAULT_CASE["order_path"],
+                DEFAULT_CASE["traffic_path"],
+                *DEFAULT_CASE["activity_paths"],
+            )
+            if all(path.is_file() for path in local_paths):
+                return load_real_case_dashboard_b(**DEFAULT_CASE)
+            return load_public_demo_dashboard_b(PUBLIC_DEMO_DIR)
         except DashboardBInputError as error:
             st.error(str(error))
             return None

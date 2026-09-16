@@ -10,31 +10,29 @@ from ops_workbench.ui.ysb_dashboard_b import (
     build_dashboard_b_from_upload,
     contribution_summary,
     core_facts,
-    load_dashboard_b_marts,
+    load_public_demo_dashboard_b,
     quality_count,
     result_decomposition,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-MART_DIR = ROOT / "data" / "marts" / "ysb"
+DEMO_DIR = ROOT / "demo_data" / "ysb_dashboard_b"
 PAGE = ROOT / "src" / "ops_workbench" / "ui" / "pages" / "7_ysb_dashboard_b.py"
 POLICY = ROOT / "config" / "ysb_dashboard_b_order_metric_policy.yaml"
 RULES = ROOT / "config" / "ysb_dashboard_b_diagnosis_rules.yaml"
 
 
 def test_sample_marts_feed_b2_facts_and_reconcile() -> None:
-    data = load_dashboard_b_marts(MART_DIR)
+    data = load_public_demo_dashboard_b(DEMO_DIR)
     facts = core_facts(data)
     result = result_decomposition(data)
-    _, customer_error = contribution_summary(data, "CUSTOMER")
     _, product_error = contribution_summary(data, "PRODUCT")
     assert len(facts) == 5
-    assert result["driver_classification"] == "AOV_DRIVEN"
-    assert result["purchase_amount_change"] == pytest.approx(-63_231.98)
-    assert abs(customer_error) <= 0.01
+    assert result["driver_classification"] == "MIXED"
+    assert result["purchase_amount_change"] == pytest.approx(-352_638.74)
     assert abs(product_error) <= 0.01
-    assert quality_count(data, "ZERO_AMOUNT_ORDER") == 896
-    assert quality_count(data, "PRODUCT_KEY_MAPPING_CONFLICT") == 100
+    assert quality_count(data, "ZERO_AMOUNT_ORDER") == 58
+    assert quality_count(data, "PRODUCT_KEY_MAPPING_CONFLICT") == 23
 
 
 def test_null_quality_count_stays_unavailable() -> None:

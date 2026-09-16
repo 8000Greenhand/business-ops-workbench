@@ -14,7 +14,7 @@ from ops_workbench.ui.ysb_dashboard_b import (
     core_facts,
     current_metrics,
     has_capability,
-    load_real_case_dashboard_b,
+    load_public_demo_dashboard_b,
     result_decomposition,
 )
 
@@ -22,17 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _case():
-    return load_real_case_dashboard_b(
-        ROOT / "data" / "raw" / "众恩德订单明细4-5月.csv",
-        ROOT / "data" / "raw" / "众恩德流量4-5月.xlsx",
-        (
-            ROOT / "data" / "raw" / "众恩德在架活动.csv",
-            ROOT / "data" / "raw" / "众恩德结束活动.csv",
-        ),
-        merchant_name="四川众恩德科技",
-        previous_period="2026-04",
-        current_period="2026-05",
-    )
+    return load_public_demo_dashboard_b(ROOT / "demo_data" / "ysb_dashboard_b")
 
 
 def test_zhongende_core_result_and_product_contribution() -> None:

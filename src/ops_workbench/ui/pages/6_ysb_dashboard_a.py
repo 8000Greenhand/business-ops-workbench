@@ -35,7 +35,8 @@ from ops_workbench.ui.ysb_dashboard import (
 
 
 ROOT = Path(__file__).resolve().parents[4]
-MART_PATH = ROOT / "data" / "marts" / "ysb" / "mart_merchant_monthly_priority.csv"
+LOCAL_MART_PATH = ROOT / "data" / "marts" / "ysb" / "mart_merchant_monthly_priority.csv"
+DEMO_MART_PATH = ROOT / "demo_data" / "ysb_dashboard_a" / "mart_merchant_monthly_priority.csv"
 SCALE_LABELS = {"KEY": "核心", "MID": "中等", "LONG_TAIL": "长尾", "UNAVAILABLE": "不可用"}
 PRIORITY_LABELS = {"PRIORITY": "高优先级", "ATTENTION": "需关注", "WATCHLIST": "观察"}
 
@@ -72,10 +73,11 @@ def _short_reason_text(value: object) -> str:
 
 def main() -> None:
     configure_page("YSB Dashboard A · 区域商家经营", show_heading=False)
-    if not MART_PATH.is_file():
-        st.error("未找到 YSB priority mart，请先生成 M2B 数据集。")
+    mart_path = LOCAL_MART_PATH if LOCAL_MART_PATH.is_file() else DEMO_MART_PATH
+    if not mart_path.is_file():
+        st.error("未找到 Dashboard A 展示数据。")
         return
-    frame = load_priority_mart(MART_PATH)
+    frame = load_priority_mart(mart_path)
     default_period = latest_complete_period(frame)
     periods = sorted(frame["month"].dropna().unique(), reverse=True)
 

@@ -1,0 +1,13 @@
+{
+  "merchant_name": "四川众恩德科技",
+  "previous_period": "2026-04",
+  "current_period": "2026-05",
+  "source_label": "四川众恩德科技聚合演示案例",
+  "capabilities": [
+    "HAS_ACTIVITY",
+    "HAS_PRODUCT",
+    "HAS_TRAFFIC"
+  ],
+  "activity_mapping_rate": 1.0,
+  "customer_unavailable_reason": "当前数据来自中台账号，订单导出不包含药店标识；药店贡献诊断需要商家账号权限。"
+}

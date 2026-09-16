@@ -16,6 +16,7 @@ venv/
 .env.*
 !.env.example
 secrets/
+.streamlit/secrets.toml
 *.pem
 *.key
 tmp/

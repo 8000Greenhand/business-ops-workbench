@@ -1,0 +1,3 @@
+month,previous_month,purchase_amount,order_count,aov,active_customers,active_products,comparison_quality_status,purchase_amount_change,purchase_amount_change_rate,order_count_change,order_count_change_rate,aov_change,aov_change_rate,active_products_change,active_products_change_rate,active_customers_change,active_customers_change_rate
+2026-04,,476865.08,1932,246.8245755693582,,38,CASE_EXPORT,,,,,,,,,,
+2026-05,2026-04,124226.34,1059,117.30532577903682,,40,CASE_EXPORT,-352638.74,-0.7394937368867521,-873.0,-0.4518633540372671,-129.51924979032137,-0.5247421148868793,2.0,0.05263157894736842,,

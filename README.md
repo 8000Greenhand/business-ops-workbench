@@ -1,158 +1,187 @@
 # Business Ops Workbench
 
-Business Ops Workbench（经营诊断工作台）是一个本地优先、行业无关的经营数据诊断项目。V1 将按 M0 → M4 逐步实现数据导入、指标分析、异常诊断和报告输出。
+## 药师帮区域商家经营决策工作台
 
-## 当前里程碑
+一个本地优先的经营诊断作品：把区域经营监控与单商家下钻诊断连成一条可解释、可核对的运营决策链路。
 
-当前开发里程碑：**M4A-0 Streamlit Operations Workbench Shell**。
+## 项目背景
 
-v0.1.0 已包含 M1 数据底座、完整 M2 指标层和 M3 诊断层。当前分支增加轻量 Streamlit 运营工作台壳层，尚未实现完整 Dashboard。
+区域运营需要同时关注约 100 家商家。传统报表通常只能回答“区域结果变了多少”，却很难快速回答两件更重要的事：
 
-## 安装
+- 哪些商家正在拖累区域经营结果？
+- 找到异常商家后，变化主要体现在订单、客单价、流量、活动端口、商品，还是药店结构？
 
-需要 Python 3.12 或更高版本。
+本项目因此建立两层决策工具：
+
+- **Dashboard A：区域商家经营监控与优先级识别**
+- **Dashboard B：单商家经营深度诊断**
+
+项目呈现的是一次本地数据分析与作品重建，不代表已经生产上线或替代实际经营决策流程。
+
+## 决策链路
+
+```mermaid
+flowchart LR
+    A[区域经营监控] --> B[识别高优先级商家]
+    B --> C[单商家下钻]
+    C --> D[经营结果拆解]
+    D --> E[流量对标]
+    E --> F[活动端口]
+    F --> G[商品贡献]
+    G --> H[药店贡献<br/>数据权限允许时]
+```
+
+该链路优先输出已验证事实与关联信号；不把相关性直接表述为因果。
+
+## Dashboard A：区域商家经营
+
+Dashboard A 回答的是：**“区域负责人现在最应该先关注谁？”**
+
+它以月度可比商家为基础，提供：
+
+- 月度可比 GMV 与环比
+- 业绩损失 / 增长 Top 商家
+- 高优先、需关注、观察三级处理视图
+- 单商家 Quick View，查看近 12 个月走势
+- 对历史快照、部分周期和缺失数据的展示保护，避免把不完整月份当作标准完整月环比
+
+当前默认展示最近可靠可比完整周期：**2026-04 vs 2026-03**。
+
+| 指标 | 结果 |
+|---|---:|
+| 可比商家数 | 78 家 |
+| Comparable GMV | ¥948.20 万 |
+| 上期 Comparable GMV | ¥1,140.00 万 |
+| MoM | -16.8% |
+| 下降商家 | 53 家 |
+| 增长商家 | 25 家 |
+| 高优先商家 | 14 家 |
+
+- **Top Loss**：鲁鸿医疗，约 -¥57.04 万
+- **Top Growth**：成都瑞舒达健康管理，约 +¥35.06 万
+
+## Dashboard B：单商家经营诊断
+
+Dashboard B 回答的是：**“这家商家为什么发生经营变化？”**
+
+它按上传的单商家数据能力自动适配，不为缺失数据制造结果：
+
+- 经营结果、订单数与客单价拆解
+- 本店与同行的流量变化对标
+- 活动端口金额贡献
+- 商品贡献与集中度
+- 药店贡献（仅在订单数据包含稳定药店标识时启用）
+
+当数据缺少活动、流量、商品或药店维度时，对应模块会降级说明能力边界，而不是补造结论。
+
+## 真实案例：四川众恩德科技
+
+案例使用重新导出的商家数据，对比 **2026-04 → 2026-05**。以下均为文件内可复核的经营事实；“进货金额”不等同于已确认财务收入。
+
+### 经营结果
+
+| 指标 | 2026-04 | 2026-05 | 变化 |
+|---|---:|---:|---:|
+| 进货金额 | ¥47.69 万 | ¥12.42 万 | -73.9% |
+| Orders | 1,932 | 1,059 | -45.2% |
+| AOV | ¥246.82 | ¥117.31 | -52.5% |
+
+订单量与客单价均为负向变化；两因素拆解可以回加到进货金额变化。这描述变化结构，不解释变化原因。
+
+### 流量关联信号：本店 vs 同行
+
+| 指标 | 本店变化 | 同行变化 |
+|---|---:|---:|
+| 曝光 | -42.6% | -5.2% |
+| 点击 | -47.8% | -11.8% |
+| 访客 | -50.0% | -13.1% |
+
+**信号**：同期本店曝光、点击和访客降幅均显著大于同行。现有数据不能直接证明流量下降导致进货金额下降。
+
+### 活动端口与商品贡献
+
+- **事实**：拼团进货金额约减少 **¥30.75 万**，贡献活动端口全部负向变化约 **87.2%**。
+- **事实**：最大损失商品为欧姆龙电子血压计 HEM-7121，约减少 **¥10 万**。
+- **事实**：Top 5 商品负向变化集中度为 **84.5%**。
+
+商品贡献可与整体变化核对；商品展示名称仍受映射冲突限制，因此不将其表述为商品永久退出或唯一根因。
+
+## 数据设计原则
+
+- **区域与明细分层**：Dashboard A 使用 `month × merchant` 区域经营粒度；Dashboard B 按需分析单商家订单明细。
+- **不建设全量订单仓库**：不把 80+ 商家的订单明细集中入仓，只在需要时处理单商家上传数据。
+- **缺失不等于 0**：缺失、零金额、映射冲突和状态未知都保留并标记。
+- **部分周期不作标准环比**：不完整月与历史快照不进入标准完整月 MoM、优先级与排名判断。
+- **Merchant 与 Customer 分开**：区域商家是 Dashboard A 的监控对象；药店是 Dashboard B 订单明细中的 Customer 维度，不能相互替代。
+- **数据权限决定能力**：没有药店编码和名称时，药店贡献模块明确显示不可用。
+- **原始业务文件不进 Git**：仅提交源码、测试、配置、审计文档和必要的汇总结果。
+
+## 技术架构
+
+```text
+raw
+  -> staging
+  -> mart
+  -> diagnosis
+  -> Streamlit dashboards
+```
+
+| 层 | 实际组件 |
+|---|---|
+| 数据处理 | Python、Pandas、OpenPyXL |
+| 本地数据层 | DuckDB |
+| 配置 | PyYAML |
+| 展示 | Streamlit |
+| 验证 | pytest |
+| 版本管理 | Git |
+
+## 测试
+
+当前全量测试：**188 passed**。
+
+测试覆盖数据 grain、金额/贡献 reconciliation、周期质量、Priority 识别、诊断事实、数据能力检测、UI 展示与页面启动 smoke。重点确保：
+
+- Customer 与 Product 两条贡献桥可分别回加到整体变化
+- 部分周期不会被展示为标准完整月环比
+- 缺失药店标识时药店诊断安全降级
+- Dashboard 页面可启动，且上传入口只渲染一次
+
+## Screenshots
+
+当前仓库未保存适合公开展示的截图，也不会为了 README 生成模拟截图。建议在人工验收后将已脱敏截图存放在 `docs/images/`，再替换以下位置：
+
+- `docs/images/dashboard-a-overview.png`：Dashboard A 首页
+- `docs/images/dashboard-b-zhongende-overview.png`：Dashboard B 众恩德首页
+- `docs/images/dashboard-b-diagnosis.png`：Dashboard B 流量、活动与商品诊断
+
+## 数据与隐私说明
+
+项目使用历史业务数据进行个人分析与作品重建。原始业务数据不提交 Git、不公开，README 不展示订单级敏感数据；此处仅保留理解决策流程所需的汇总结果与诊断事实。
+
+README 中出现的真实商家名称和汇总指标，公开发布前仍应确认是否获得展示授权；如不适合公开，可改为脱敏名称与区间化金额。
+
+## 项目定位
+
+这不是一个单纯的 BI Dashboard，而是一套围绕：
+
+> **区域监控 → 识别优先级 → 单商家诊断**
+
+构建的运营决策流程。它关注的是先定位最值得处理的问题，再用可核对的数据事实支持下一步业务判断。
+
+## 本地运行
+
+需要 Python 3.12 或更高版本：
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.\\.venv\\Scripts\\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
-```
-
-## 启动
-
-```powershell
 streamlit run src/ops_workbench/ui/app.py
 ```
 
-## 测试
+运行测试：
 
 ```powershell
 pytest
 ```
-
-## 生成 Demo 数据
-
-```powershell
-python scripts/generate_demo_data.py --seed 42
-```
-
-默认输出 `data/demo/business_daily_demo.csv` 和 `data/demo/demo_metadata.json`。
-
-## 标准数据链路
-
-```python
-from pathlib import Path
-
-from ops_workbench.ingestion import load_source
-from ops_workbench.mapping import apply_mapping, load_mapping
-from ops_workbench.models.database import replace_fact_business_daily
-from ops_workbench.transforms import standardize
-from ops_workbench.validation import build_quality_report
-
-source = load_source(Path("data/demo/business_daily_demo.csv"))
-mapping = load_mapping("demo_business_daily")
-mapped = apply_mapping(source.dataframe, mapping.fields)
-standardized = standardize(
-    mapped,
-    source_columns=source.metadata.source_columns,
-    source_field_mapping=mapping.fields,
-)
-quality = build_quality_report(standardized)
-
-if quality.is_valid:
-    replace_fact_business_daily(standardized, quality)
-```
-
-## 指标计算
-
-```python
-from datetime import date
-
-from ops_workbench.metrics import MetricEngine
-
-engine = MetricEngine()
-result = engine.calculate_metric(
-    "net_revenue",
-    start_date=date(2025, 1, 1),
-    end_date=date(2025, 1, 31),
-    filters={"channel": ["渠道01", "渠道03"]},
-)
-by_team = engine.calculate_metric_by_dimension("conversion_rate", "team")
-```
-
-## 趋势、比较与漏斗
-
-```python
-from ops_workbench.metrics import (
-    calculate_funnel,
-    compare_metric,
-    get_metric_series,
-    get_rolling_series,
-)
-
-trend = get_metric_series(engine, "conversion_rate", "2025-01-01", "2025-01-31")
-comparison = compare_metric(
-    engine,
-    "net_revenue",
-    "2025-01-31",
-    "2025-01-31",
-    comparison="previous_week",
-)
-rolling = get_rolling_series(engine, "conversion_rate", "2025-01-07", "2025-01-31")
-funnel = calculate_funnel(engine, filters={"channel": "渠道03"})
-```
-
-滚动比例按窗口内分子、分母分别聚合后重算，不是每日比例的算术平均；加总型指标的滚动值是有效日值的日均。
-
-## 经营异常扫描
-
-```python
-from ops_workbench.diagnostics import AnomalyEngine
-
-scanner = AnomalyEngine(engine)
-scan = scanner.scan_date("2025-07-19", filters={"business_line": "业务线01"})
-event = scan.events[0]
-print(event.metric_name, event.current_value, event.baseline_value, event.severity)
-```
-
-`AnomalyEvent` 描述指标相对基线的数据偏离；异常不等于已确认根因，event evidence 不作因果判断。
-
-## 算术贡献分析
-
-```python
-from ops_workbench.diagnostics import ContributionEngine
-
-contribution = ContributionEngine(engine).analyze_contribution(
-    "net_revenue",
-    "2025-08-01",
-    "2025-08-30",
-    "channel",
-    comparison="previous_period",
-)
-largest_movements = contribution.top_movements()
-```
-
-Contribution 是对可加总指标变化的算术拆分，不代表因果影响。V1 明确拒绝对 ratio metrics 进行 arithmetic contribution。
-
-## 结构化诊断
-
-```python
-from ops_workbench.diagnostics import DiagnosisEngine
-
-event = scanner.scan_date("2025-07-19").events[0]
-diagnosis = DiagnosisEngine(engine).diagnose_event(event)
-```
-
-Diagnosis 提供结构化证据与下一步检查方向，不是自动化因果结论；当前只执行一层 contribution drilldown。
-
-## 目录简介
-
-- `config/`：后续里程碑使用的配置目录。
-- `data/`：本地数据分层目录；真实数据目录默认不提交 Git。
-- `docs/`：架构、数据字典、指标字典和使用文档。
-- `scripts/`：后续里程碑的命令行脚本目录。
-- `src/ops_workbench/`：应用源代码及后续业务模块目录。
-- `tests/`：自动化测试及测试夹具。
-
-完整产品范围和里程碑约束见 `SPEC.md` 与 `AGENTS.md`。

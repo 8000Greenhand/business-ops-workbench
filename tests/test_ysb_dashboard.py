@@ -22,7 +22,7 @@ from ops_workbench.ui.ysb_dashboard import (
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "src" / "ops_workbench" / "ui" / "pages" / "6_ysb_dashboard_a.py"
-MART = ROOT / "data" / "marts" / "ysb" / "mart_merchant_monthly_priority.csv"
+MART = ROOT / "demo_data" / "ysb_dashboard_a" / "mart_merchant_monthly_priority.csv"
 
 
 def _frame() -> pd.DataFrame:
