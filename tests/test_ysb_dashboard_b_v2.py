@@ -230,7 +230,7 @@ def test_public_demo_detail_is_aggregate_only_and_preserves_baseline_metrics() -
     data = load_public_demo_dashboard_b(ROOT / "demo_data" / "ysb_dashboard_b")
     assert data.monthly.iloc[0]["purchase_amount"] == pytest.approx(476_865.08)
     assert data.monthly.iloc[1]["purchase_amount"] == pytest.approx(124_226.34)
-    assert data.traffic.set_index("metric").loc["访客", "own_change_rate"] == pytest.approx(-0.4995010)
+    assert data.traffic.set_index("metric").loc["访客", "own_change_rate"] == pytest.approx(-0.5142215569)
     assert data.products["amount_change"].sum() == pytest.approx(-352_638.74)
     assert data.activity_details["activity_id"].nunique() == 154
 

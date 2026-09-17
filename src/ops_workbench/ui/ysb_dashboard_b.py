@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Iterable
 from zipfile import BadZipFile
@@ -32,8 +33,9 @@ from ops_workbench.diagnostics.ysb_merchant_case import (
     HAS_CUSTOMER,
     HAS_PRODUCT,
     HAS_TRAFFIC,
-    build_activity_layers_from_monthly_aggregates,
+    build_case_data_from_daily_facts,
     build_case_data_from_frames,
+    build_case_data_from_staged_orders,
     build_real_case_data,
 )
 from ops_workbench.diagnostics.ysb_dashboard_b_input import (
@@ -76,6 +78,13 @@ class DashboardBData:
     activity_display_name_variation_count: int = 0
     customer_unavailable_reason: str | None = None
     input_summary: DashboardBInputSummary = field(default_factory=DashboardBInputSummary)
+    baseline_start: date | None = None
+    baseline_end: date | None = None
+    comparison_start: date | None = None
+    comparison_end: date | None = None
+    available_start: date | None = None
+    available_end: date | None = None
+    period_source: dict[str, Any] | None = field(default=None, repr=False, compare=False)
 
 
 class DashboardBInputError(ValueError):
@@ -149,6 +158,13 @@ def load_real_case_dashboard_b(
             if HAS_CUSTOMER in result["capabilities"]
             else "当前数据来自中台账号，订单导出不包含药店标识；药店贡献诊断需要商家账号权限。"
         ),
+        baseline_start=result["baseline_start"],
+        baseline_end=result["baseline_end"],
+        comparison_start=result["comparison_start"],
+        comparison_end=result["comparison_end"],
+        available_start=result["available_start"],
+        available_end=result["available_end"],
+        period_source=result["period_source"],
     )
 
 
@@ -156,52 +172,65 @@ def load_public_demo_dashboard_b(directory: Path) -> DashboardBData:
     """Load the tracked aggregate-only Dashboard B public demo."""
     try:
         metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
-        monthly = pd.read_csv(directory / "monthly.csv")
-        products = pd.read_csv(directory / "products.csv")
-        facts = pd.read_csv(directory / "facts.csv")
         quality = pd.read_csv(directory / "quality.csv")
-        traffic = pd.read_csv(directory / "traffic.csv")
-        activity_monthly = pd.read_csv(
-            directory / "activity_detail.csv",
-            dtype={"activity_id": "string", "product_code": "string", "month": "string"},
+        result_daily = pd.read_csv(directory / "result_daily.csv")
+        traffic_daily = pd.read_csv(directory / "traffic_daily.csv")
+        product_daily = pd.read_csv(directory / "product_daily.csv", dtype={"product_key": "string"})
+        activity_daily = pd.read_csv(
+            directory / "activity_daily.csv",
+            dtype={"activity_id": "string", "product_code": "string"},
         )
     except (OSError, ValueError, KeyError) as error:
         raise DashboardBInputError(f"公开演示数据无法加载：{error}") from error
 
-    _require_fact_columns(facts)
-    activities, activity_details = build_activity_layers_from_monthly_aggregates(
-        activity_monthly,
-        str(metadata["previous_period"]),
-        str(metadata["current_period"]),
+    defaults = metadata.get("default_periods", {})
+    baseline_start = defaults.get("baseline_start", "2026-04-01")
+    baseline_end = defaults.get("baseline_end", "2026-04-30")
+    comparison_start = defaults.get("comparison_start", "2026-05-01")
+    comparison_end = defaults.get("comparison_end", "2026-05-30")
+    result = build_case_data_from_daily_facts(
+        result_daily,
+        product_daily,
+        traffic_daily,
+        activity_daily,
+        baseline_start=baseline_start,
+        baseline_end=baseline_end,
+        comparison_start=comparison_start,
+        comparison_end=comparison_end,
     )
-    customer_columns = [
-        "previous_month",
-        "current_month",
-        "customer_key",
-        "customer_name",
-        "previous_amount",
-        "current_amount",
-        "amount_change",
-        "period_status",
-    ]
+    _require_fact_columns(result["facts"])
+    source = {
+        "kind": "daily",
+        "result": result_daily,
+        "product": product_daily,
+        "traffic": traffic_daily,
+        "activity": activity_daily,
+    }
     return DashboardBData(
-        monthly=monthly,
-        customers=pd.DataFrame(columns=customer_columns),
-        products=products,
-        facts=facts,
+        monthly=result["monthly"],
+        customers=result["customers"],
+        products=result["products"],
+        facts=result["facts"],
         quality=quality,
-        previous_period=str(metadata["previous_period"]),
-        current_period=str(metadata["current_period"]),
+        previous_period=str(result["monthly"].iloc[0]["month"]),
+        current_period=str(result["monthly"].iloc[1]["month"]),
         source_label=str(metadata["source_label"]),
         merchant_name=str(metadata["merchant_name"]),
-        traffic=traffic,
-        activities=activities,
-        activity_details=activity_details,
+        traffic=result["traffic"],
+        activities=result["activities"],
+        activity_details=result["activity_details"],
         capabilities=frozenset(metadata["capabilities"]),
         activity_mapping_rate=float(metadata["activity_mapping_rate"]),
         activity_unmatched_snapshot_count=int(metadata.get("activity_unmatched_snapshot_count", 0)),
         activity_display_name_variation_count=int(metadata.get("activity_display_name_variation_count", 0)),
         customer_unavailable_reason=str(metadata["customer_unavailable_reason"]),
+        baseline_start=result["baseline_start"],
+        baseline_end=result["baseline_end"],
+        comparison_start=result["comparison_start"],
+        comparison_end=result["comparison_end"],
+        available_start=result["available_start"],
+        available_end=result["available_end"],
+        period_source=source,
     )
 
 
@@ -257,6 +286,13 @@ def build_dashboard_b_from_uploads(
                 legacy=True,
                 unknown_labels=recognized.unknown_labels,
             ),
+            baseline_start=data.baseline_start,
+            baseline_end=data.baseline_end,
+            comparison_start=data.comparison_start,
+            comparison_end=data.comparison_end,
+            available_start=data.available_start,
+            available_end=data.available_end,
+            period_source=data.period_source,
         )
 
     if recognized.order is None:
@@ -296,6 +332,13 @@ def build_dashboard_b_from_uploads(
             customer_available=customer_available,
             unknown_labels=recognized.unknown_labels,
         ),
+        baseline_start=result["baseline_start"],
+        baseline_end=result["baseline_end"],
+        comparison_start=result["comparison_start"],
+        comparison_end=result["comparison_end"],
+        available_start=result["available_start"],
+        available_end=result["available_end"],
+        period_source=result["period_source"],
     )
 
 
@@ -336,7 +379,128 @@ def _build_legacy_dashboard_b(
         current_period=str(current),
         source_label=filename,
         capabilities=frozenset({HAS_CUSTOMER, HAS_PRODUCT}),
+        baseline_start=previous.start_time.date(),
+        baseline_end=previous.end_time.date(),
+        comparison_start=current.start_time.date(),
+        comparison_end=current.end_time.date(),
+        available_start=staged["order_date"].min().date(),
+        available_end=staged["order_date"].max().date(),
+        period_source={"kind": "staged", "staged": staged},
     )
+
+
+def select_dashboard_b_periods(
+    data: DashboardBData,
+    *,
+    baseline_start: date,
+    baseline_end: date,
+    comparison_start: date,
+    comparison_end: date,
+) -> DashboardBData:
+    """Recompute every available Dashboard B module for selected date periods."""
+    if data.period_source is None:
+        return data
+    if baseline_start > baseline_end or comparison_start > comparison_end:
+        raise DashboardBInputError("周期开始日期不能晚于结束日期。")
+    if data.available_start and min(baseline_start, comparison_start) < data.available_start:
+        raise DashboardBInputError("所选周期早于当前数据源的可用日期。")
+    if data.available_end and max(baseline_end, comparison_end) > data.available_end:
+        raise DashboardBInputError("所选周期晚于当前数据源的可用日期。")
+
+    source = data.period_source
+    kind = source["kind"]
+    _require_order_coverage(source, kind, baseline_start, baseline_end, comparison_start, comparison_end)
+    try:
+        if kind == "raw":
+            result = build_case_data_from_frames(
+                source["order"],
+                source["traffic"],
+                source["activities"],
+                baseline_start=baseline_start,
+                baseline_end=baseline_end,
+                comparison_start=comparison_start,
+                comparison_end=comparison_end,
+            )
+        elif kind == "staged":
+            result = build_case_data_from_staged_orders(
+                source["staged"],
+                baseline_start=baseline_start,
+                baseline_end=baseline_end,
+                comparison_start=comparison_start,
+                comparison_end=comparison_end,
+            )
+        elif kind == "daily":
+            result = build_case_data_from_daily_facts(
+                source["result"],
+                source["product"],
+                source["traffic"],
+                source["activity"],
+                baseline_start=baseline_start,
+                baseline_end=baseline_end,
+                comparison_start=comparison_start,
+                comparison_end=comparison_end,
+            )
+        else:
+            raise ValueError(f"unsupported period source: {kind}")
+    except (KeyError, TypeError, ValueError) as error:
+        raise DashboardBInputError(f"所选周期无法计算：{error}") from error
+
+    customer_available = HAS_CUSTOMER in result.get("capabilities", data.capabilities)
+    return DashboardBData(
+        monthly=result["monthly"],
+        customers=result["customers"],
+        products=result["products"],
+        facts=result["facts"],
+        quality=result.get("quality", data.quality),
+        previous_period=str(result["monthly"].iloc[0]["month"]),
+        current_period=str(result["monthly"].iloc[1]["month"]),
+        source_label=data.source_label,
+        merchant_name=data.merchant_name,
+        traffic=result.get("traffic", pd.DataFrame()),
+        activities=result.get("activities", pd.DataFrame()),
+        activity_details=result.get("activity_details", pd.DataFrame()),
+        capabilities=result.get("capabilities", data.capabilities),
+        activity_mapping_rate=result.get("activity_mapping_rate", data.activity_mapping_rate),
+        activity_unmatched_snapshot_count=result.get(
+            "activity_unmatched_snapshot_count", data.activity_unmatched_snapshot_count
+        ),
+        activity_display_name_variation_count=result.get(
+            "activity_display_name_variation_count", data.activity_display_name_variation_count
+        ),
+        customer_unavailable_reason=(
+            None if customer_available else data.customer_unavailable_reason
+        ),
+        input_summary=data.input_summary,
+        baseline_start=result["baseline_start"],
+        baseline_end=result["baseline_end"],
+        comparison_start=result["comparison_start"],
+        comparison_end=result["comparison_end"],
+        available_start=data.available_start,
+        available_end=data.available_end,
+        period_source=data.period_source,
+    )
+
+
+def _require_order_coverage(
+    source: dict[str, Any],
+    kind: str,
+    baseline_start: date,
+    baseline_end: date,
+    comparison_start: date,
+    comparison_end: date,
+) -> None:
+    if kind == "daily":
+        dates = pd.to_datetime(source["result"]["date"], errors="coerce")
+    elif kind == "staged":
+        dates = pd.to_datetime(source["staged"]["order_date"], errors="coerce")
+    else:
+        dates = pd.to_datetime(source["order"]["下单时间"], errors="coerce")
+    for label, start, end in (
+        ("基准期", baseline_start, baseline_end),
+        ("对比期", comparison_start, comparison_end),
+    ):
+        if not dates.between(pd.Timestamp(start), pd.Timestamp(end)).any():
+            raise DashboardBInputError(f"{label}没有可用订单数据，请调整日期范围。")
 
 
 def has_capability(data: DashboardBData, capability: str) -> bool:

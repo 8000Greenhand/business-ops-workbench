@@ -35,6 +35,7 @@ from ops_workbench.ui.ysb_dashboard_b import (
     load_public_demo_dashboard_b,
     quality_count,
     result_decomposition,
+    select_dashboard_b_periods,
     top_contributors,
 )
 from ops_workbench.diagnostics.ysb_dashboard_b_input import UploadedPayload
@@ -52,17 +53,17 @@ POLICY_PATH = ROOT / "config" / "ysb_dashboard_b_order_metric_policy.yaml"
 RULES_PATH = ROOT / "config" / "ysb_dashboard_b_diagnosis_rules.yaml"
 PUBLIC_DEMO_DIR = ROOT / "demo_data" / "ysb_dashboard_b"
 CUSTOMER_LABELS = {
-    "RETAINED": "两期持续活跃药店",
-    "CURRENT_ONLY": "本期活跃、上期未活跃药店",
-    "PREVIOUS_ONLY": "上期活跃、本期未活跃药店",
+    "RETAINED": "两个周期持续活跃",
+    "CURRENT_ONLY": "对比期新增活跃",
+    "PREVIOUS_ONLY": "基准期活跃、对比期未活跃",
 }
 PRODUCT_LABELS = {
-    "RETAINED_ACTIVE": "两期持续动销商品",
-    "CURRENT_ONLY_ACTIVE": "本期动销、上期未动销商品",
-    "PREVIOUS_ONLY_ACTIVE": "上期动销、本期未动销商品",
+    "RETAINED_ACTIVE": "两个周期持续动销",
+    "CURRENT_ONLY_ACTIVE": "对比期新增动销",
+    "PREVIOUS_ONLY_ACTIVE": "基准期动销、对比期未动销",
 }
 DRIVER_LABELS = {
-    "AOV_DRIVEN": "客单价下降主导",
+    "AOV_DRIVEN": "客单价变化主导",
     "ORDER_DRIVEN": "订单量变化主导",
     "MIXED": "订单量与客单价共同影响",
 }
@@ -72,9 +73,9 @@ QUALITY_LABELS = {
     "PRODUCT_MAPPING_LIMITATION": "商品映射存在限制",
 }
 ACTIVITY_STATUS_LABELS = {
-    "RETAINED_ACTIVITY": "两期都有成交",
-    "PREVIOUS_ONLY_ACTIVITY": "上期有、本期无成交",
-    "CURRENT_ONLY_ACTIVITY": "本期新增成交",
+    "RETAINED_ACTIVITY": "两个周期都有成交",
+    "PREVIOUS_ONLY_ACTIVITY": "基准期有、对比期无成交",
+    "CURRENT_ONLY_ACTIVITY": "对比期新增成交",
     "ZERO_AMOUNT_ONLY": "仅零金额记录",
 }
 
@@ -95,6 +96,13 @@ def _ratio(value: object) -> str:
     return "不可用" if pd.isna(value) else f"{float(value):.1%}"
 
 
+def _pct_direction(value: object) -> str:
+    if pd.isna(value):
+        return "不可用"
+    rate = float(value)
+    return f"增加 {rate:.1%}" if rate > 0 else f"下降 {abs(rate):.1%}" if rate < 0 else "持平"
+
+
 def _quality_flag(value: object) -> str:
     if pd.isna(value) or not str(value).strip():
         return "无质量标记"
@@ -112,13 +120,13 @@ def _driver_label(value: object) -> str:
 def _business_fact_text(value: str) -> str:
     """Replace persisted technical tokens only when presenting fact text."""
     replacements = {
-        "AOV_DRIVEN": "客单价下降主导",
+        "AOV_DRIVEN": "客单价变化主导",
         "ORDER_DRIVEN": "订单量变化主导",
         "MIXED": "订单量与客单价共同影响",
         "AOV": "客单价",
         "CUSTOMER": "药店",
         "PRODUCT": "商品",
-        "PREVIOUS_ONLY": "上期活跃、本期未活跃",
+        "PREVIOUS_ONLY": "基准期活跃、对比期未活跃",
     }
     for source, target in replacements.items():
         value = value.replace(source, target)
@@ -170,9 +178,74 @@ def _get_data(uploaded: list[object]) -> DashboardBData | None:
 def _load_default_demo() -> DashboardBData | None:
     """Load the aggregate-only default demo used whenever no valid upload exists."""
     try:
-        return load_public_demo_dashboard_b(PUBLIC_DEMO_DIR)
+        return _cached_public_demo(str(PUBLIC_DEMO_DIR))
     except DashboardBInputError as error:
         st.error(str(error))
+        return None
+
+
+@st.cache_data(show_spinner=False)
+def _cached_public_demo(directory: str) -> DashboardBData:
+    """Cache the tracked daily aggregates across Streamlit reruns."""
+    return load_public_demo_dashboard_b(Path(directory))
+
+
+def _select_periods(data: DashboardBData) -> DashboardBData | None:
+    """Render the two date ranges and rebuild the selected comparison."""
+    if not all(
+        value is not None
+        for value in (
+            data.baseline_start,
+            data.baseline_end,
+            data.comparison_start,
+            data.comparison_end,
+            data.available_start,
+            data.available_end,
+        )
+    ):
+        return data
+    source_key = hashlib.sha256(
+        f"{data.source_label}|{data.available_start}|{data.available_end}".encode("utf-8")
+    ).hexdigest()[:12]
+    render_section_header("对比周期", "日期边界来自当前数据源的实际可用范围。")
+    columns = st.columns(2)
+    with columns[0]:
+        baseline = st.date_input(
+            "基准周期",
+            value=(data.baseline_start, data.baseline_end),
+            min_value=data.available_start,
+            max_value=data.available_end,
+            key=f"ysb_b_baseline_{source_key}",
+        )
+    with columns[1]:
+        comparison = st.date_input(
+            "对比周期",
+            value=(data.comparison_start, data.comparison_end),
+            min_value=data.available_start,
+            max_value=data.available_end,
+            key=f"ysb_b_comparison_{source_key}",
+        )
+    if not isinstance(baseline, tuple) or len(baseline) != 2:
+        st.info("请选择完整的基准周期开始和结束日期。")
+        return None
+    if not isinstance(comparison, tuple) or len(comparison) != 2:
+        st.info("请选择完整的对比周期开始和结束日期。")
+        return None
+    baseline_days = (baseline[1] - baseline[0]).days + 1
+    comparison_days = (comparison[1] - comparison[0]).days + 1
+    st.caption(f"基准期：{baseline_days} 天　·　对比期：{comparison_days} 天")
+    if baseline_days != comparison_days:
+        st.warning("两个周期长度不同，金额、订单量及流量总量受周期天数影响，请谨慎比较。")
+    try:
+        return select_dashboard_b_periods(
+            data,
+            baseline_start=baseline[0],
+            baseline_end=baseline[1],
+            comparison_start=comparison[0],
+            comparison_end=comparison[1],
+        )
+    except DashboardBInputError as error:
+        st.warning(str(error))
         return None
 
 
@@ -189,6 +262,7 @@ def _render_input_summary(data: DashboardBData) -> None:
     st.sidebar.markdown("✓ 药店维度" if summary.customer_available else "— 药店维度不可用")
     if summary.legacy:
         st.sidebar.caption("已自动兼容旧版药师帮日报。")
+    st.sidebar.caption("默认比较周期已根据订单实际日期自动选择，可在页面顶部修改。")
     if summary.unknown_labels:
         st.sidebar.caption(f"未识别文件：{'、'.join(summary.unknown_labels)}")
 
@@ -199,7 +273,7 @@ def _overview(data: DashboardBData) -> None:
     render_section_header("经营概览", f"数据来源：{data.source_label}")
     first = st.columns(4)
     with first[0]:
-        render_metric_card("当前进货金额", _money(metrics["purchase_amount"]), data.current_period, "primary")
+        render_metric_card("对比期进货金额", _money(metrics["purchase_amount"]), data.current_period, "primary")
     with first[1]:
         render_metric_card(
             "进货金额变化",
@@ -247,9 +321,9 @@ def _diagnosis_hero(data: DashboardBData) -> None:
         driver_label = "订单量与客单价共同下滑"
     st.markdown(
         "<section class=\"ops-diagnosis-hero\">"
-        f"<h3>本期进货金额{direction} {abs(change_rate):.1%}</h3>"
+        f"<h3>对比期进货金额较基准期{direction} {abs(change_rate):.1%}</h3>"
         f"<p>订单数 {escape(order_change)}{connector}客单价 {escape(aov_change)}；"
-        f"本期变化主要表现为「{escape(driver_label)}」。</p>"
+        f"对比期变化主要表现为「{escape(driver_label)}」。</p>"
         "</section>",
         unsafe_allow_html=True,
     )
@@ -285,7 +359,7 @@ def _facts(data: DashboardBData) -> None:
 
 def _result(data: DashboardBData) -> None:
     result = result_decomposition(data)
-    render_section_header("结果拆解", "将本期进货金额变化拆为订单量与客单价两项影响。")
+    render_section_header("结果拆解", "将对比期较基准期的进货金额变化拆为订单量与客单价两项影响。")
     cards = st.columns(3)
     with cards[0]:
         render_metric_card("进货金额变化", _signed_money(result["purchase_amount_change"], force_wan=True), "两项影响合计", "negative" if result["purchase_amount_change"] < 0 else "positive")
@@ -299,56 +373,64 @@ def _result(data: DashboardBData) -> None:
             ("客单价效应", result["aov_effect"]),
         )
     )
-    st.caption(f"两项拆解误差：{_money(result['decomposition_error'])}；数据直接读取既有诊断事实。")
+    st.caption(f"两项拆解误差：{_money(result['decomposition_error'])}；数据由所选日期周期实时重算。")
 
 
 def _traffic(data: DashboardBData) -> None:
     render_section_header("流量表现：本店 vs 同行", "比较两个周期的曝光、点击和访客变化，仅呈现事实与信号。")
+    if data.traffic.empty:
+        st.info("当前所选周期无可用流量数据。")
+        return
     display = data.traffic.rename(
         columns={
-            "metric": "流量指标", "previous_own": "4月本店", "current_own": "5月本店",
-            "own_change_rate": "本店变化", "previous_peer": "4月同行", "current_peer": "5月同行",
+            "metric": "流量指标", "previous_own": "基准期本店", "current_own": "对比期本店",
+            "own_change_rate": "本店变化", "previous_peer": "基准期同行", "current_peer": "对比期同行",
             "peer_change_rate": "同行变化", "relative_gap": "相对同行差距",
         }
     ).copy()
-    for column in ("4月本店", "5月本店", "4月同行", "5月同行"):
+    for column in ("基准期本店", "对比期本店", "基准期同行", "对比期同行"):
         display[column] = display[column].map(lambda value: f"{int(value):,}")
     for column in ("本店变化", "同行变化", "相对同行差距"):
         display[column] = display[column].map(lambda value: "不可用" if pd.isna(value) else f"{float(value):+.1%}")
     st.dataframe(display, hide_index=True, width="stretch")
     visitor = data.traffic[data.traffic["metric"].eq("访客")].iloc[0]
     st.info(
-        f"本店访客下降 {abs(float(visitor['own_change_rate'])):.1%}，同期同行下降 "
-        f"{abs(float(visitor['peer_change_rate'])):.1%}，本店流量表现明显弱于同行。"
+        f"本店访客{_pct_direction(visitor['own_change_rate'])}，同期同行"
+        f"{_pct_direction(visitor['peer_change_rate'])}；两者仅作同期变化比较。"
     )
     st.caption("该信号不证明流量下降导致进货金额下降；当前不计算 CTR 或访客到订单转化率。")
 
 
 def _activity(data: DashboardBData) -> None:
     render_section_header("活动分析", "先查看活动类型，再下钻到订单中实际出现的具体活动。")
+    if data.activities.empty or data.activity_details.empty:
+        st.info("当前所选周期无可用活动数据。")
+        return
     st.markdown("#### 活动类型概览")
     display = data.activities.rename(
         columns={
-            "activity_type": "活动类型", "previous_amount": "上期进货金额", "current_amount": "本期进货金额",
-            "amount_change": "金额变化", "change_rate": "变化率", "current_amount_share": "本期金额占比",
+            "activity_type": "活动类型", "previous_amount": "基准期进货金额", "current_amount": "对比期进货金额",
+            "amount_change": "金额变化", "change_rate": "变化率", "current_amount_share": "对比期金额占比",
             "negative_contribution": "负向变化贡献度",
         }
     ).copy()
-    for column in ("上期进货金额", "本期进货金额", "金额变化"):
+    for column in ("基准期进货金额", "对比期进货金额", "金额变化"):
         display[column] = display[column].map(format_metric_value)
-    for column in ("变化率", "本期金额占比", "负向变化贡献度"):
+    for column in ("变化率", "对比期金额占比", "负向变化贡献度"):
         display[column] = display[column].map(lambda value: "不可用" if pd.isna(value) else f"{float(value):.1%}")
     st.dataframe(
-        display[["活动类型", "上期进货金额", "本期进货金额", "金额变化", "变化率", "本期金额占比", "负向变化贡献度"]],
+        display[["活动类型", "基准期进货金额", "对比期进货金额", "金额变化", "变化率", "对比期金额占比", "负向变化贡献度"]],
         hide_index=True,
         width="stretch",
         column_config={"活动类型": st.column_config.TextColumn(width="large")},
     )
-    top = data.activities.iloc[0]
-    st.info(
-        f"主要损失来自{top['activity_type']}：进货金额减少 {abs(float(top['amount_change'])) / 10_000:.2f} 万，"
-        f"占活动类型全部负向变化 {float(top['negative_contribution']):.1%}。"
-    )
+    losses = data.activities[data.activities["amount_change"].lt(0)].sort_values("amount_change")
+    if not losses.empty:
+        top = losses.iloc[0]
+        st.info(
+            f"主要损失来自{top['activity_type']}：进货金额减少 {abs(float(top['amount_change'])) / 10_000:.2f} 万，"
+            f"占活动类型全部负向变化 {float(top['negative_contribution']):.1%}。"
+        )
 
     st.markdown("#### 具体活动")
     options = data.activities["activity_type"].astype(str).tolist()
@@ -399,23 +481,23 @@ def _activity_detail_table(frame: pd.DataFrame, *, positive: bool) -> None:
         columns={
             "activity_id": "活动ID",
             "product_code": "商品编码",
-            "previous_amount": "上期金额",
-            "current_amount": "本期金额",
+            "previous_amount": "基准期金额",
+            "current_amount": "对比期金额",
             "amount_change": "变化额",
             "change_rate": "变化率",
-            "previous_orders": "上期订单数",
-            "current_orders": "本期订单数",
+            "previous_orders": "基准期订单数",
+            "current_orders": "对比期订单数",
             "period_status": "周期状态",
             "negative_contribution": "负向贡献占比",
             "current_snapshot_status": "当前快照状态",
         }
     )
     display["周期状态"] = display["周期状态"].map(ACTIVITY_STATUS_LABELS)
-    for column in ("上期金额", "本期金额"):
+    for column in ("基准期金额", "对比期金额"):
         display[column] = display[column].map(format_metric_value)
     display["变化额"] = display["变化额"].map(_signed_activity_money)
     display["负向贡献占比"] = display["负向贡献占比"].map(lambda value: f"{float(value):.1%}")
-    columns = ["活动主题", "商品/活动内容", "变化额", "上期金额", "本期金额", "周期状态"]
+    columns = ["活动主题", "商品/活动内容", "变化额", "基准期金额", "对比期金额", "周期状态"]
     if not positive:
         columns.append("负向贡献占比")
     columns.append("活动ID")
@@ -427,8 +509,8 @@ def _activity_detail_table(frame: pd.DataFrame, *, positive: bool) -> None:
             "活动主题": st.column_config.TextColumn(width="medium"),
             "商品/活动内容": st.column_config.TextColumn(width="large"),
             "变化额": st.column_config.TextColumn(width="small"),
-            "上期金额": st.column_config.TextColumn(width="small"),
-            "本期金额": st.column_config.TextColumn(width="small"),
+            "基准期金额": st.column_config.TextColumn(width="small"),
+            "对比期金额": st.column_config.TextColumn(width="small"),
             "周期状态": st.column_config.TextColumn(width="medium"),
             "负向贡献占比": st.column_config.TextColumn(width="small"),
             "活动ID": st.column_config.TextColumn(width="medium"),
@@ -451,12 +533,12 @@ def _customer(data: DashboardBData) -> None:
     display = summary.copy()
     display["周期状态"] = display["period_status"].map(CUSTOMER_LABELS)
     display = display.rename(
-        columns={"entity_count": "药店数", "previous_amount": "上期进货金额", "current_amount": "本期进货金额", "amount_change": "进货金额贡献"}
+        columns={"entity_count": "药店数", "previous_amount": "基准期进货金额", "current_amount": "对比期进货金额", "amount_change": "进货金额贡献"}
     )
-    for column in ("上期进货金额", "本期进货金额", "进货金额贡献"):
+    for column in ("基准期进货金额", "对比期进货金额", "进货金额贡献"):
         display[column] = display[column].map(format_metric_value)
     st.dataframe(
-        display[["周期状态", "药店数", "上期进货金额", "本期进货金额", "进货金额贡献"]],
+        display[["周期状态", "药店数", "基准期进货金额", "对比期进货金额", "进货金额贡献"]],
         hide_index=True,
         width="stretch",
         column_config={"周期状态": st.column_config.TextColumn(width="large")},
@@ -469,8 +551,8 @@ def _customer(data: DashboardBData) -> None:
     retained_count = int(summary.loc[summary["period_status"].eq("RETAINED"), "entity_count"].iloc[0])
     overlap = retained_count / union_count if union_count else None
     st.info(
-        f"两期持续活跃药店占两期去重活跃药店 {_ratio(overlap)}。"
-        "这是周期活跃重合情况，请勿将上期活跃、本期未活跃药店直接解释为永久流失。"
+        f"两个周期持续活跃药店占两个周期去重活跃药店 {_ratio(overlap)}。"
+        "这是周期活跃重合情况，请勿将基准期活跃、对比期未活跃药店直接解释为永久流失。"
     )
     loss_tab, growth_tab = st.tabs(["负向贡献药店", "正向贡献药店"])
     with loss_tab:
@@ -481,10 +563,10 @@ def _customer(data: DashboardBData) -> None:
 
 def _customer_table(frame: pd.DataFrame) -> None:
     display = frame[["customer_name", "customer_key", "previous_amount", "current_amount", "amount_change", "period_status"]].rename(
-        columns={"customer_name": "药店", "customer_key": "药店编码", "previous_amount": "上期进货金额", "current_amount": "本期进货金额", "amount_change": "金额变化", "period_status": "周期状态"}
+        columns={"customer_name": "药店", "customer_key": "药店编码", "previous_amount": "基准期进货金额", "current_amount": "对比期进货金额", "amount_change": "金额变化", "period_status": "周期状态"}
     )
     display["周期状态"] = display["周期状态"].map(CUSTOMER_LABELS)
-    for column in ("上期进货金额", "本期进货金额", "金额变化"):
+    for column in ("基准期进货金额", "对比期进货金额", "金额变化"):
         display[column] = display[column].map(format_metric_value)
     st.dataframe(
         display,
@@ -493,8 +575,8 @@ def _customer_table(frame: pd.DataFrame) -> None:
         column_config={
             "药店": st.column_config.TextColumn(width="large"),
             "药店编码": st.column_config.TextColumn(width="medium"),
-            "上期进货金额": st.column_config.TextColumn(width="small"),
-            "本期进货金额": st.column_config.TextColumn(width="small"),
+            "基准期进货金额": st.column_config.TextColumn(width="small"),
+            "对比期进货金额": st.column_config.TextColumn(width="small"),
             "金额变化": st.column_config.TextColumn(width="small"),
             "周期状态": st.column_config.TextColumn(width="medium"),
         },
@@ -507,12 +589,12 @@ def _product(data: DashboardBData) -> None:
     display = summary.copy()
     display["周期状态"] = display["period_status"].map(PRODUCT_LABELS)
     display = display.rename(
-        columns={"entity_count": "商品数", "previous_amount": "上期进货金额", "current_amount": "本期进货金额", "amount_change": "进货金额贡献"}
+        columns={"entity_count": "商品数", "previous_amount": "基准期进货金额", "current_amount": "对比期进货金额", "amount_change": "进货金额贡献"}
     )
-    for column in ("上期进货金额", "本期进货金额", "进货金额贡献"):
+    for column in ("基准期进货金额", "对比期进货金额", "进货金额贡献"):
         display[column] = display[column].map(format_metric_value)
     st.dataframe(
-        display[["周期状态", "商品数", "上期进货金额", "本期进货金额", "进货金额贡献"]],
+        display[["周期状态", "商品数", "基准期进货金额", "对比期进货金额", "进货金额贡献"]],
         hide_index=True,
         width="stretch",
         column_config={"周期状态": st.column_config.TextColumn(width="large")},
@@ -532,10 +614,10 @@ def _product(data: DashboardBData) -> None:
 
 def _product_table(frame: pd.DataFrame) -> None:
     display = frame[["product_name", "product_key", "previous_amount", "current_amount", "amount_change", "mapping_quality_status"]].rename(
-        columns={"product_name": "商品", "product_key": "商品ID", "previous_amount": "上期进货金额", "current_amount": "本期进货金额", "amount_change": "金额变化", "mapping_quality_status": "映射质量"}
+        columns={"product_name": "商品", "product_key": "商品ID", "previous_amount": "基准期进货金额", "current_amount": "对比期进货金额", "amount_change": "金额变化", "mapping_quality_status": "映射质量"}
     )
     display["映射质量"] = display["映射质量"].map(lambda value: "存在映射冲突" if value == "CONFLICT" else "映射正常")
-    for column in ("上期进货金额", "本期进货金额", "金额变化"):
+    for column in ("基准期进货金额", "对比期进货金额", "金额变化"):
         display[column] = display[column].map(format_metric_value)
     st.dataframe(
         display,
@@ -544,8 +626,8 @@ def _product_table(frame: pd.DataFrame) -> None:
         column_config={
             "商品": st.column_config.TextColumn(width="large"),
             "商品ID": st.column_config.TextColumn(width="small"),
-            "上期进货金额": st.column_config.TextColumn(width="small"),
-            "本期进货金额": st.column_config.TextColumn(width="small"),
+            "基准期进货金额": st.column_config.TextColumn(width="small"),
+            "对比期进货金额": st.column_config.TextColumn(width="small"),
             "金额变化": st.column_config.TextColumn(width="small"),
             "映射质量": st.column_config.TextColumn(width="medium"),
         },
@@ -573,7 +655,7 @@ def _evidence(data: DashboardBData) -> None:
             rows.append(
                 {
                     "数据说明": "活动快照",
-                    "当前状态": "活动快照中存在未出现在当前订单导出周期的活动记录；其不参与本期成交贡献计算。",
+                    "当前状态": "活动快照中存在未出现在当前订单导出周期的活动记录；其不参与所选周期成交贡献计算。",
                 }
             )
         if data.activity_display_name_variation_count:
@@ -601,10 +683,22 @@ def main() -> None:
     data = _get_data(uploaded)
     if data is None:
         return
+    data = _select_periods(data)
+    if data is None:
+        return
+    baseline_days = (data.baseline_end - data.baseline_start).days + 1 if data.baseline_start and data.baseline_end else None
+    comparison_days = (data.comparison_end - data.comparison_start).days + 1 if data.comparison_start and data.comparison_end else None
     render_page_header(
         "单商家经营诊断",
         "从经营结果依次查看流量、活动分析、商品和可用的药店事实。",
-        (f"商家：{data.merchant_name or data.source_label}", f"比较周期：{data.previous_period} → {data.current_period}", "数据口径：进货金额"),
+        (
+            f"商家：{data.merchant_name or data.source_label}",
+            f"基准周期：{data.baseline_start} ～ {data.baseline_end}",
+            f"对比周期：{data.comparison_start} ～ {data.comparison_end}",
+            f"基准期天数：{baseline_days}",
+            f"对比期天数：{comparison_days}",
+            "数据口径：进货金额",
+        ),
     )
     _overview(data)
     _diagnosis_hero(data)

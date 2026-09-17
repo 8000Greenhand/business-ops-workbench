@@ -2,6 +2,18 @@
   "merchant_name": "四川众恩德科技",
   "previous_period": "2026-04",
   "current_period": "2026-05",
+  "default_periods": {
+    "baseline_start": "2026-04-01",
+    "baseline_end": "2026-04-30",
+    "comparison_start": "2026-05-01",
+    "comparison_end": "2026-05-30"
+  },
+  "daily_grain": {
+    "result_daily.csv": "date",
+    "traffic_daily.csv": "date",
+    "activity_daily.csv": "date × activity_id",
+    "product_daily.csv": "date × product_key"
+  },
   "source_label": "四川众恩德科技聚合演示案例",
   "capabilities": [
     "HAS_ACTIVITY",

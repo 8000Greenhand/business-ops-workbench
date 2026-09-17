@@ -46,12 +46,12 @@ def test_zhongende_core_result_and_product_contribution() -> None:
 def test_zhongende_traffic_and_activity_layers() -> None:
     data = _case()
     traffic = data.traffic.set_index("metric")
-    assert traffic.loc["曝光", "own_change_rate"] == pytest.approx(-0.4259249)
-    assert traffic.loc["点击", "own_change_rate"] == pytest.approx(-0.4775463)
-    assert traffic.loc["访客", "own_change_rate"] == pytest.approx(-0.4995010)
-    assert traffic.loc["曝光", "peer_change_rate"] == pytest.approx(-0.0516082)
-    assert traffic.loc["点击", "peer_change_rate"] == pytest.approx(-0.1184174)
-    assert traffic.loc["访客", "peer_change_rate"] == pytest.approx(-0.1307190)
+    assert traffic.loc["曝光", "own_change_rate"] == pytest.approx(-0.4389136205)
+    assert traffic.loc["点击", "own_change_rate"] == pytest.approx(-0.4927083333)
+    assert traffic.loc["访客", "own_change_rate"] == pytest.approx(-0.5142215569)
+    assert traffic.loc["曝光", "peer_change_rate"] == pytest.approx(-0.0778606319)
+    assert traffic.loc["点击", "peer_change_rate"] == pytest.approx(-0.1440512678)
+    assert traffic.loc["访客", "peer_change_rate"] == pytest.approx(-0.1561365287)
 
     activities = data.activities.set_index("activity_type")
     assert activities.loc["拼团", "previous_amount"] == pytest.approx(430_627.12)

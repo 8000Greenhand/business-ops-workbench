@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -101,8 +102,12 @@ def test_streamlit_page_displays_facts_evidence_and_safe_status_language() -> No
     activity_headers = " ".join(
         " ".join(frame.value.columns.astype(str)) for frame in app.dataframe
     )
-    assert "活动主题 商品/活动内容 变化额 上期金额 本期金额 周期状态 负向贡献占比 活动ID" in activity_headers
-    assert "活动主题 商品/活动内容 变化额 上期金额 本期金额 周期状态 活动ID" in activity_headers
+    assert "活动主题 商品/活动内容 变化额 基准期金额 对比期金额 周期状态 负向贡献占比 活动ID" in activity_headers
+    assert "活动主题 商品/活动内容 变化额 基准期金额 对比期金额 周期状态 活动ID" in activity_headers
+    assert len(app.date_input) == 2
+    assert app.date_input[0].value == (date(2026, 4, 1), date(2026, 4, 30))
+    assert app.date_input[1].value == (date(2026, 5, 1), date(2026, 5, 30))
+    assert not any("两个周期长度不同" in str(item.value) for item in app.warning)
     assert "当前数据来自中台账号，订单导出不包含药店标识" in visible
     limitations = app.expander[1]
     limitation_text = " ".join(str(element.value) for element in limitations.markdown)
