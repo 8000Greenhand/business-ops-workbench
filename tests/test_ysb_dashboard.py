@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -91,6 +92,23 @@ def test_dashboard_a_page_keeps_priority_hierarchy_and_starts() -> None:
         "指标质量" not in element.value.columns and "数据质量" not in element.value.columns
         for element in app.dataframe
     )
+
+
+def test_dashboard_a_owner_display_and_ratio_tables() -> None:
+    app = AppTest.from_file(PAGE).run(timeout=30)
+    assert not app.exception
+    assert app.sidebar.selectbox[1].label == "负责人"
+    assert list(app.sidebar.selectbox[1].options) == ["高运"]
+    assert app.sidebar.selectbox[1].value == "高运"
+    assert len(app.sidebar.multiselect) == 2
+
+    ratio_columns = {"GMV环比", "上月区域份额", "售后率"}
+    for table in app.dataframe:
+        for column in ratio_columns.intersection(table.value.columns):
+            assert all(
+                value == "不可用" or re.fullmatch(r"[+-]?\d+\.\d%", value)
+                for value in table.value[column]
+            )
 
 
 def test_dashboard_a_default_uses_april_and_treats_may_as_snapshot() -> None:

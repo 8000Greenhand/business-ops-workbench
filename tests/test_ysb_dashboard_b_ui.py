@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from pathlib import Path
 
@@ -120,6 +121,21 @@ def test_streamlit_page_displays_facts_evidence_and_safe_status_language() -> No
     assert "Quality: nan" not in visible
     assert "新增客户" not in visible
     assert "流失客户" not in visible
+
+
+def test_dashboard_b_ratio_tables_use_one_decimal_percentages() -> None:
+    app = AppTest.from_file(PAGE).run(timeout=30)
+    assert not app.exception
+    ratio_columns = {
+        "本店变化", "同行变化", "相对同行差距", "变化率",
+        "对比期金额占比", "负向变化贡献度", "负向贡献占比",
+    }
+    for table in app.dataframe:
+        for column in ratio_columns.intersection(table.value.columns):
+            assert all(
+                value == "不可用" or re.fullmatch(r"[+-]?\d+\.\d%", value)
+                for value in table.value[column]
+            )
 
 
 def test_dashboard_b_no_upload_default_demo_smoke() -> None:

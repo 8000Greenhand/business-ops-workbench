@@ -84,12 +84,11 @@ def main() -> None:
     with st.sidebar:
         st.markdown("#### 筛选条件")
         period = st.selectbox("月份", periods, index=periods.index(default_period))
-        owners = sorted(x for x in frame["owner"].dropna().astype(str).unique() if x)
-        selected_owners = st.multiselect("负责人", owners, placeholder="请选择负责人")
+        st.selectbox("负责人", ["高运"], index=0)
         selected_scales = st.multiselect("商家规模", ["KEY", "MID", "LONG_TAIL", "UNAVAILABLE"], format_func=SCALE_LABELS.get, placeholder="请选择商家规模")
         selected_levels = st.multiselect("处理层级", ["PRIORITY", "ATTENTION", "WATCHLIST"], default=["PRIORITY"], format_func=PRIORITY_LABELS.get, placeholder="请选择处理层级")
 
-    selected = filter_dashboard(frame, period, owners=selected_owners, scales=selected_scales, priority_levels=None)
+    selected = filter_dashboard(frame, period, scales=selected_scales, priority_levels=None)
     standard_period = is_standard_comparison_period(period)
     quality_label = period_quality_label(period)
     quality_status = period_quality_status(period)
@@ -230,6 +229,10 @@ def main() -> None:
         st.line_chart(trend.set_index("month")[["gmv"]], height=300)
         trend_display = trend[["month", "gmv", "gmv_mom", "gmv_rank_current", "aftersales_rate"]].rename(
             columns={"month": "月份", "gmv": "GMV", "gmv_mom": "GMV环比", "gmv_rank_current": "排名", "aftersales_rate": "售后率"}
+        )
+        trend_display["GMV环比"] = trend_display["GMV环比"].map(format_ratio)
+        trend_display["售后率"] = trend_display["售后率"].map(
+            lambda value: "不可用" if pd.isna(value) else f"{float(value):.1%}"
         )
         st.dataframe(trend_display, hide_index=True, width="stretch")
         st.info("单商家深度诊断请通过侧边栏打开 Dashboard B，并上传该商家的日报。")
