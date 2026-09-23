@@ -16,6 +16,7 @@ from ops_workbench.diagnostics.city_supply import (
     diagnose_supply,
     load_city_supply_policy,
 )
+from ops_workbench.metrics.city_supply import aggregate_city_supply_metrics
 from ops_workbench.simulation.city_supply import SCENARIO_A, SCENARIO_B, SCENARIO_C
 from ops_workbench.ui.city_supply_dashboard import (
     ANOMALY_COLUMNS,
@@ -106,6 +107,33 @@ def test_city_filter_limits_every_dashboard_drilldown(facts: pd.DataFrame) -> No
     assert set(data.city_comparison["city"]) == {"成都"}
     assert set(data.supply_diagnosis["city"]) == {"成都"}
     assert set(data.anomalies["城市"]) == {"成都"}
+
+
+def test_single_city_builds_zone_comparison_sorted_by_gmv(facts: pd.DataFrame) -> None:
+    data = build_city_supply_dashboard(
+        facts,
+        current_start=SCENARIO_A.start_date,
+        current_end=SCENARIO_A.end_date,
+        city="成都",
+    )
+    current = facts[
+        facts["date"].between(
+            pd.Timestamp(SCENARIO_A.start_date), pd.Timestamp(SCENARIO_A.end_date)
+        )
+        & facts["city"].eq("成都")
+    ]
+    expected = aggregate_city_supply_metrics(current, group_by=("zone",))
+
+    assert set(data.zone_comparison["zone"]) == set(expected["zone"])
+    assert data.zone_comparison["gmv_current"].is_monotonic_decreasing
+    for _, row in data.zone_comparison.iterrows():
+        expected_row = expected.loc[expected["zone"].eq(row["zone"])].iloc[0]
+        assert row["completion_rate_current"] == pytest.approx(
+            expected_row["completion_rate"]
+        )
+        assert row["gross_margin_current"] == pytest.approx(
+            expected_row["gross_margin"]
+        )
 
 
 def test_city_completion_rate_uses_weighted_additive_totals(
@@ -311,6 +339,16 @@ def test_streamlit_filters_surface_all_three_simulated_scenarios() -> None:
         app = app.run(timeout=30)
         assert not app.exception
         assert expected_issue in _visible_text(app)
+        if city == "成都":
+            visible = _visible_text(app)
+            assert "区域经营对比" in visible
+            assert "城市经营对比" not in visible
+            assert "P0 运力缺口｜成都东站晚高峰" in visible
+            assert "定位路径：成都 → 成都东站 → 晚高峰" in visible
+            assert (
+                "重点提升晚高峰目标区域有效在线供给，通过司机激励、热区运营等方式补充短时运力，避免扩大无效补贴覆盖。"
+                in visible
+            )
 
 
 def _visible_text(app: AppTest) -> str:

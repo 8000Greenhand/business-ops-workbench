@@ -84,6 +84,7 @@ class CitySupplyDashboardData:
     result_decomposition: pd.DataFrame
     diagnostic_summary: tuple[str, ...]
     city_comparison: pd.DataFrame
+    zone_comparison: pd.DataFrame
     daily_trend: pd.DataFrame
     supply_diagnosis: pd.DataFrame
     efficiency_comparison: pd.DataFrame
@@ -164,6 +165,11 @@ def build_city_supply_dashboard(
     result_decomposition = _result_decomposition(overview)
     diagnostic_summary = _build_diagnostic_summary(overview, result_decomposition)
     city_comparison = _comparison_frame(current, baseline, ("city",))
+    zone_comparison = (
+        _comparison_frame(current, baseline, ("zone",))
+        if city is not None
+        else pd.DataFrame()
+    )
     supply = _comparison_frame(
         current,
         baseline,
@@ -192,6 +198,11 @@ def build_city_supply_dashboard(
         result_decomposition=result_decomposition,
         diagnostic_summary=diagnostic_summary,
         city_comparison=city_comparison.sort_values("gmv_current", ascending=False),
+        zone_comparison=(
+            zone_comparison.sort_values("gmv_current", ascending=False)
+            if not zone_comparison.empty
+            else zone_comparison
+        ),
         daily_trend=daily_trend.sort_values("date"),
         supply_diagnosis=_sort_supply_diagnosis(supply),
         efficiency_comparison=efficiency_comparison,
@@ -489,7 +500,7 @@ def _build_anomaly_pool(
             else "在线供给增长未转化为同等幅度的有效交易。"
         )
         action = (
-            "优先增加该区域目标时段的定向运力，避免全天无差别补贴。"
+            "重点提升晚高峰目标区域有效在线供给，通过司机激励、热区运营等方式补充短时运力，避免扩大无效补贴覆盖。"
             if is_gap
             else "收缩低效率时段增量，将供给转向需求更强的区域与时段。"
         )

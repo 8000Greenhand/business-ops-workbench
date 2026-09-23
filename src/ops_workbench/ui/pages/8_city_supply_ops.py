@@ -171,11 +171,10 @@ def _render_margin_scatter(frame: pd.DataFrame) -> None:
 def _render_anomaly_card(row: pd.Series) -> None:
     """Render one complete decision chain without horizontal truncation."""
     with st.container(border=True):
-        st.markdown(
-            f"**{row['优先级']} · {row['城市']} · {row['区域/时段']} · {row['问题']}**"
-        )
+        scope_title = str(row["区域/时段"]).replace(" · ", "")
+        st.markdown(f"**{row['优先级']} {row['问题']}｜{scope_title}**")
         scope = str(row["区域/时段"]).replace(" · ", " → ")
-        st.caption(f"定位路径｜{row['城市']} → {scope}")
+        st.caption(f"定位路径：{row['城市']} → {scope}")
         st.caption(f"关键证据｜{row['关键证据']}")
         st.markdown(f"**经营判断：** {row['经营判断']}")
         st.markdown(f"**建议动作：** {row['建议动作']}")
@@ -348,27 +347,45 @@ def _render_result_decomposition(data: CitySupplyDashboardData) -> None:
 
 
 def _render_city_comparison(data: CitySupplyDashboardData) -> None:
-    render_section_header(
-        "城市经营对比",
-        "回答哪个城市的规模、履约、供给效率或毛利约束出现偏离。",
+    efficiency = lambda value: (
+        f"¥{float(value):,.1f}" if pd.notna(value) else "不可用"
     )
-    frame = data.city_comparison.copy()
-    display = pd.DataFrame(
-        {
-            "城市": frame["city"],
-            "GMV": frame["gmv_current"].map(format_money),
-            "GMV变化": frame["gmv_change"].map(format_relative_change),
-            "完单率": frame["completion_rate_current"].map(format_percentage),
-            "完单率变化": frame["completion_rate_change_pp"].map(format_point_change),
-            "在线时长": frame["online_hours_current"].map(format_hours),
-            "在线时长变化": frame["online_hours_change"].map(format_relative_change),
-            "GMV/在线小时": frame["gmv_per_online_hour_current"].map(
-                lambda value: f"¥{float(value):,.1f}" if pd.notna(value) else "不可用"
-            ),
-            "毛利率": frame["gross_margin_current"].map(format_percentage),
-            "毛利率变化": frame["gross_margin_change_pp"].map(format_point_change),
-        }
-    )
+    if data.city is not None:
+        render_section_header(
+            "区域经营对比",
+            f"查看{data.city}各区域的经营规模、履约、在线供给效率与毛利表现。",
+        )
+        frame = data.zone_comparison.copy()
+        display = pd.DataFrame(
+            {
+                "区域": frame["zone"],
+                "GMV": frame["gmv_current"].map(format_money),
+                "完单率": frame["completion_rate_current"].map(format_percentage),
+                "在线时长": frame["online_hours_current"].map(format_hours),
+                "GMV/在线小时": frame["gmv_per_online_hour_current"].map(efficiency),
+                "毛利率": frame["gross_margin_current"].map(format_percentage),
+            }
+        )
+    else:
+        render_section_header(
+            "城市经营对比",
+            "回答哪个城市的规模、履约、供给效率或毛利约束出现偏离。",
+        )
+        frame = data.city_comparison.copy()
+        display = pd.DataFrame(
+            {
+                "城市": frame["city"],
+                "GMV": frame["gmv_current"].map(format_money),
+                "GMV变化": frame["gmv_change"].map(format_relative_change),
+                "完单率": frame["completion_rate_current"].map(format_percentage),
+                "完单率变化": frame["completion_rate_change_pp"].map(format_point_change),
+                "在线时长": frame["online_hours_current"].map(format_hours),
+                "在线时长变化": frame["online_hours_change"].map(format_relative_change),
+                "GMV/在线小时": frame["gmv_per_online_hour_current"].map(efficiency),
+                "毛利率": frame["gross_margin_current"].map(format_percentage),
+                "毛利率变化": frame["gross_margin_change_pp"].map(format_point_change),
+            }
+        )
     st.dataframe(display, hide_index=True, width="stretch")
 
 
