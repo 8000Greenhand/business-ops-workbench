@@ -37,27 +37,12 @@ def main() -> None:
         title="单商家经营诊断",
         url_path="ysb_dashboard_b",
     )
-    city_supply = st.Page(
-        "pages/8_city_supply_ops.py",
-        title="城市运力经营",
-        url_path="city_supply_ops",
-    )
-
-    page = st.navigation(
-        {
-            "药师帮经营": [dashboard_a, dashboard_b],
-            "城市运力经营": [city_supply],
-        },
-        position="hidden",
-    )
+    page = st.navigation([dashboard_a, dashboard_b], position="hidden")
 
     with st.sidebar:
         st.markdown("#### 药师帮经营")
         st.page_link(dashboard_a, label="区域商家经营", use_container_width=True)
         st.page_link(dashboard_b, label="单商家经营诊断", use_container_width=True)
-        st.divider()
-        st.markdown("#### 城市运力经营")
-        st.page_link(city_supply, label="城市运力经营", use_container_width=True)
         st.divider()
 
     page.run()
