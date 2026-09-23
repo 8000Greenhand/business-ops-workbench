@@ -530,8 +530,8 @@ def main() -> None:
     if data is None:
         return
     _render_kpis(data)
-    _render_result_decomposition(data)
     _render_anomalies(data)
+    _render_result_decomposition(data)
     _render_city_comparison(data)
     _render_trends(data)
     _render_supply_diagnosis(data)
