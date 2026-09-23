@@ -122,6 +122,22 @@ def test_city_filter_limits_every_dashboard_drilldown(facts: pd.DataFrame) -> No
     assert set(data.anomalies["城市"]) == {"成都"}
 
 
+def test_zone_filter_limits_dashboard_to_selected_zone(
+    facts: pd.DataFrame,
+) -> None:
+    data = build_city_supply_dashboard(
+        facts,
+        current_start=SCENARIO_A.start_date,
+        current_end=SCENARIO_A.end_date,
+        city="成都",
+        zone="成都东站",
+    )
+    assert data.zone == "成都东站"
+    assert set(data.zone_comparison["zone"]) == {"成都东站"}
+    assert set(data.supply_diagnosis["zone"]) == {"成都东站"}
+    assert all(scope.startswith("成都东站") or scope == "全市" for scope in data.anomalies["区域/时段"])
+
+
 def test_single_city_builds_zone_comparison_sorted_by_gmv(facts: pd.DataFrame) -> None:
     data = build_city_supply_dashboard(
         facts,
@@ -396,7 +412,7 @@ def test_streamlit_page_and_navigation_import_without_error() -> None:
     ):
         assert label in visible
     assert len(page.date_input) == 2
-    assert len(page.selectbox) == 2
+    assert len(page.selectbox) == 3
 
     app = AppTest.from_file(APP).run(timeout=30)
     assert not app.exception
@@ -413,6 +429,22 @@ def test_streamlit_page_and_navigation_import_without_error() -> None:
     )
 
 
+def test_streamlit_zone_filter_is_enabled_after_city_selection() -> None:
+    app = AppTest.from_file(PAGE).run(timeout=30)
+    assert not app.exception
+    assert app.selectbox[1].disabled
+
+    app.selectbox[0].set_value("成都")
+    app = app.run(timeout=30)
+    assert not app.selectbox[1].disabled
+    assert "成都东站" in app.selectbox[1].options
+
+    app.selectbox[1].set_value("成都东站")
+    app = app.run(timeout=30)
+    visible = _visible_text(app)
+    assert "当前范围：成都 → 成都东站" in visible
+
+
 def test_streamlit_filters_surface_all_v2_simulated_scenarios() -> None:
     app = AppTest.from_file(PAGE).run(timeout=30)
     assert not app.exception
@@ -426,7 +458,9 @@ def test_streamlit_filters_surface_all_v2_simulated_scenarios() -> None:
         app.date_input[0].set_value(scenario.start_date)
         app.date_input[1].set_value(scenario.end_date)
         app.selectbox[0].set_value(city)
-        app.selectbox[1].set_value("全部时段")
+        app = app.run(timeout=30)
+        app.selectbox[1].set_value("全部区域")
+        app.selectbox[2].set_value("全部时段")
         app = app.run(timeout=30)
         assert not app.exception
         assert expected_issue in _visible_text(app)
