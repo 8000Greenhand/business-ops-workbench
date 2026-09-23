@@ -224,7 +224,18 @@ def build_city_supply_dashboard(
     )
     daily_trend = aggregate_city_supply_metrics(current, group_by=("date",))
     efficiency_comparison = _efficiency_comparison(overview)
-    anomalies = _build_anomaly_pool(supply, city_comparison, active_policy)
+    aggregate_scope = "全市"
+    if zone is not None:
+        aggregate_scope = zone
+    if time_bucket is not None:
+        time_label = TIME_BUCKET_LABELS.get(time_bucket, time_bucket)
+        aggregate_scope = f"{aggregate_scope} · {time_label}"
+    anomalies = _build_anomaly_pool(
+        supply,
+        city_comparison,
+        active_policy,
+        aggregate_scope=aggregate_scope,
+    )
     gross_margin = overview["gross_margin"].current
     return CitySupplyDashboardData(
         periods=periods,
@@ -526,6 +537,8 @@ def _build_anomaly_pool(
     supply: pd.DataFrame,
     city_comparison: pd.DataFrame,
     policy: CitySupplyPolicy,
+    *,
+    aggregate_scope: str = "全市",
 ) -> pd.DataFrame:
     rows: list[dict[str, str]] = []
     for _, item in supply.iterrows():
@@ -593,7 +606,7 @@ def _build_anomaly_pool(
                 {
                     "优先级": "P0" if band == GrossMarginBand.AT_FLOOR else "P1",
                     "城市": str(item["city"]),
-                    "区域/时段": "全市",
+                    "区域/时段": aggregate_scope,
                     "问题": "毛利触线" if band == GrossMarginBand.AT_FLOOR else "毛利逼近红线",
                     "关键证据": (
                         f"补贴率 {format_point_change(item['subsidy_rate_change_pp'])}；"
@@ -615,7 +628,7 @@ def _build_anomaly_pool(
                 {
                     "优先级": "P2",
                     "城市": str(item["city"]),
-                    "区域/时段": "全市",
+                    "区域/时段": aggregate_scope,
                     "问题": "毛利缓冲收窄",
                     "关键证据": (
                         f"毛利率 {format_point_change(item['gross_margin_change_pp'])}；"
