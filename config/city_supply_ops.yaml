@@ -1,4 +1,4 @@
-version: "0.1"
+version: "0.2"
 scope_label: "模拟经营口径"
 gross_margin_floor: 0.05
 diagnostics:
