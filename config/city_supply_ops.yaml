@@ -12,3 +12,6 @@ diagnostics:
   severe_completion_drop_pp: -0.15
   efficiency_decline: -0.10
   gmv_growth_lag: 0.10
+  effective_online_rate_drop_pp: -0.08
+  active_driver_growth: 0.10
+  driver_efficiency_decline: -0.10
