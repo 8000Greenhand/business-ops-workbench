@@ -20,6 +20,7 @@ class CitySupplyPolicy:
     scope_label: str
     gross_margin_floor: float
     gross_margin_near_buffer: float
+    gross_margin_attention_drop_pp: float
     significant_demand_growth: float
     significant_online_growth: float
     flat_demand_upper: float
@@ -74,6 +75,7 @@ def load_city_supply_policy(path: Path = DEFAULT_POLICY_PATH) -> CitySupplyPolic
         raise ValueError("City supply diagnostics policy must be a mapping")
     required = {
         "gross_margin_near_buffer",
+        "gross_margin_attention_drop_pp",
         "significant_demand_growth",
         "significant_online_growth",
         "flat_demand_upper",
