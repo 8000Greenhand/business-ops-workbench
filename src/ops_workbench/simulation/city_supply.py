@@ -68,7 +68,16 @@ SCENARIO_C = SimulationScenario(
     start_date=date(2026, 8, 24),
     end_date=date(2026, 9, 6),
 )
-SCENARIOS = (SCENARIO_A, SCENARIO_B, SCENARIO_C)
+SCENARIO_D = SimulationScenario(
+    scenario_id="D",
+    name="总在线充足但有效运力下降",
+    city="贵阳",
+    zones=("观山湖",),
+    time_buckets=("morning_peak",),
+    start_date=date(2026, 8, 10),
+    end_date=date(2026, 8, 23),
+)
+SCENARIOS = (SCENARIO_A, SCENARIO_B, SCENARIO_C, SCENARIO_D)
 
 _CITY_DEMAND_SCALE = {"成都": 1.30, "重庆": 1.15, "昆明": 0.90, "贵阳": 0.78}
 _CITY_AOV = {"成都": 34.0, "重庆": 33.0, "昆明": 30.0, "贵阳": 29.0}
@@ -157,6 +166,10 @@ def _build_fact(
         online_hours *= 1.25
         target_completion_rate = min(0.97, target_completion_rate + 0.05)
         subsidy_rate = 0.0958
+    if _matches(SCENARIO_D, business_date, city, zone, time_bucket):
+        demand_orders = round(demand_orders * 1.10)
+        online_hours *= 1.45
+        target_completion_rate = max(0.72, target_completion_rate - 0.12)
 
     active_drivers = max(
         1,
@@ -171,6 +184,9 @@ def _build_fact(
     if _matches(SCENARIO_A, business_date, city, zone, time_bucket):
         effective_driver_rate *= 0.90
         effective_online_rate *= 0.88
+    if _matches(SCENARIO_D, business_date, city, zone, time_bucket):
+        effective_driver_rate *= 0.80
+        effective_online_rate *= 0.75
     effective_online_drivers = max(
         1,
         min(online_drivers, round(online_drivers * effective_driver_rate)),
