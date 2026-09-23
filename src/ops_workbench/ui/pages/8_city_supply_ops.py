@@ -123,7 +123,7 @@ def _render_bar_chart(
 
 def _render_margin_scatter(frame: pd.DataFrame) -> None:
     """Render the city efficiency-versus-margin view with a percentage y-axis."""
-    safe = finite_chart_rows(frame, ("GMV/在线小时", "毛利率", "GMV"))
+    safe = finite_chart_rows(frame, ("GMV/有效在线小时", "毛利率", "GMV"))
     if safe.empty:
         st.info("当前筛选周期暂无可用于绘图的数据。")
         return
@@ -133,9 +133,9 @@ def _render_margin_scatter(frame: pd.DataFrame) -> None:
             "mark": {"type": "circle", "opacity": 0.78},
             "encoding": {
                 "x": {
-                    "field": "GMV/在线小时",
+                    "field": "GMV/有效在线小时",
                     "type": "quantitative",
-                    "title": "GMV / 在线小时（元）",
+                    "title": "GMV / 有效在线小时（元）",
                 },
                 "y": {
                     "field": "毛利率",
@@ -148,7 +148,7 @@ def _render_margin_scatter(frame: pd.DataFrame) -> None:
                 "tooltip": [
                     {"field": "城市", "type": "nominal", "title": "城市"},
                     {
-                        "field": "GMV/在线小时",
+                        "field": "GMV/有效在线小时",
                         "type": "quantitative",
                         "title": "GMV / 在线小时",
                         "format": ".1f",
@@ -528,13 +528,13 @@ def _render_efficiency_and_margin(data: CitySupplyDashboardData) -> None:
     ].rename(
         columns={
             "city": "城市",
-            "gmv_per_effective_online_hour_current": "GMV/在线小时",
+            "gmv_per_effective_online_hour_current": "GMV/有效在线小时",
             "gross_margin_current": "毛利率",
             "gmv_current": "GMV",
         }
     )
     if len(scatter) > 1:
-        st.caption("城市：GMV / 在线小时 vs 毛利率")
+        st.caption("城市：GMV / 有效在线小时 vs 毛利率")
         _render_margin_scatter(scatter)
 
 
