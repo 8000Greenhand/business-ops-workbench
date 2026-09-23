@@ -205,6 +205,7 @@ def test_default_policy_is_explicitly_simulated_and_configurable() -> None:
     policy = load_city_supply_policy()
     assert policy.scope_label == "模拟经营口径"
     assert policy.gross_margin_floor == pytest.approx(0.05)
+    assert policy.gross_margin_attention_drop_pp == pytest.approx(-0.10)
 
 
 def test_policy_loader_honors_a_custom_margin_floor(tmp_path: Path) -> None:
