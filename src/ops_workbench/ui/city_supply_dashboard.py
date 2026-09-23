@@ -94,7 +94,7 @@ def load_city_supply_facts() -> pd.DataFrame:
     return generate_city_supply_facts()
 
 
-def default_period(facts: pd.DataFrame, *, days: int = 14) -> tuple[date, date]:
+def default_period(facts: pd.DataFrame, *, days: int = 30) -> tuple[date, date]:
     """Return the latest complete fixed-length period in the available simulation."""
     if facts.empty or days <= 0:
         raise ValueError("City supply facts and a positive period length are required")
@@ -410,6 +410,24 @@ def _build_anomaly_pool(
         .drop(columns="_priority")
         .reset_index(drop=True)
     )
+
+
+def finite_chart_rows(
+    frame: pd.DataFrame,
+    numeric_columns: tuple[str, ...],
+) -> pd.DataFrame:
+    """Return rows whose required chart metrics are present and finite."""
+    if frame.empty or any(column not in frame.columns for column in numeric_columns):
+        return frame.iloc[0:0].copy()
+    result = frame.copy()
+    valid = pd.Series(True, index=result.index, dtype=bool)
+    for column in numeric_columns:
+        numeric = pd.to_numeric(result[column], errors="coerce")
+        valid &= numeric.notna() & numeric.map(
+            lambda value: math.isfinite(float(value)) if pd.notna(value) else False
+        )
+        result[column] = numeric
+    return result.loc[valid].copy()
 
 
 def _relative_change(current: object, baseline: object) -> float | None:
