@@ -47,6 +47,8 @@ def test_dashboard_data_assembly_succeeds(facts: pd.DataFrame) -> None:
     assert set(data.city_comparison["city"]) == {"成都", "重庆", "昆明", "贵阳"}
     assert not data.daily_trend.empty
     assert not data.supply_diagnosis.empty
+    assert not data.result_decomposition.empty
+    assert data.diagnostic_summary
 
 
 def test_default_period_uses_latest_thirty_days(facts: pd.DataFrame) -> None:
@@ -63,6 +65,35 @@ def test_previous_period_is_immediately_prior_and_equal_length(
     assert periods.days == 14
     assert periods.baseline_start == date(2026, 7, 20)
     assert periods.baseline_end == date(2026, 8, 2)
+
+
+def test_result_decomposition_reconciles_to_gmv_and_order_changes(
+    facts: pd.DataFrame,
+) -> None:
+    start, end = default_period(facts)
+    data = build_city_supply_dashboard(facts, current_start=start, current_end=end)
+    bridge = data.result_decomposition
+
+    gmv = bridge[bridge["bridge"].eq("GMV")]
+    orders = bridge[bridge["bridge"].eq("完成订单量")]
+    assert gmv["contribution"].sum() == pytest.approx(gmv["total_change"].iloc[0])
+    assert orders["contribution"].sum() == pytest.approx(
+        orders["total_change"].iloc[0]
+    )
+
+
+def test_supply_diagnosis_keeps_full_detail_with_anomalies_first(
+    facts: pd.DataFrame,
+) -> None:
+    data = build_city_supply_dashboard(
+        facts,
+        current_start=SCENARIO_A.start_date,
+        current_end=SCENARIO_A.end_date,
+        city="成都",
+    )
+    assert len(data.supply_diagnosis) == 20
+    assert data.supply_diagnosis.iloc[0]["diagnosis"] == "运力缺口"
+    assert "供需基本稳定" in set(data.supply_diagnosis["diagnosis"])
 
 
 def test_city_filter_limits_every_dashboard_drilldown(facts: pd.DataFrame) -> None:
@@ -238,6 +269,7 @@ def test_streamlit_page_and_navigation_import_without_error() -> None:
     visible = _visible_text(page)
     for label in (
         "核心经营结果",
+        "经营结果拆解",
         "城市经营对比",
         "核心趋势",
         "时空供需诊断",
