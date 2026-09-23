@@ -1,4 +1,4 @@
-"""Tests for the V0.2 city supply dashboard assembly and Streamlit page."""
+"""Tests for the V2 city supply dashboard assembly and Streamlit page."""
 
 from __future__ import annotations
 
@@ -413,7 +413,7 @@ def test_streamlit_page_and_navigation_import_without_error() -> None:
     )
 
 
-def test_streamlit_filters_surface_all_three_simulated_scenarios() -> None:
+def test_streamlit_filters_surface_all_v2_simulated_scenarios() -> None:
     app = AppTest.from_file(PAGE).run(timeout=30)
     assert not app.exception
     checks = (
