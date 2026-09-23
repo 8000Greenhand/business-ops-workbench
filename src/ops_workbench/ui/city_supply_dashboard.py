@@ -460,7 +460,7 @@ def _build_diagnostic_summary(
     ):
         messages.append(
             "司机供给："
-            f"活跃司机 {format_relative_change(active_drivers.relative_change)}，"
+            f"司机供给人次 {format_relative_change(active_drivers.relative_change)}，"
             f"有效在线时长 {format_relative_change(effective_hours.relative_change)}，"
             f"有效在线率 {format_point_change(effective_rate.point_change)}；"
             f"GMV/有效在线小时 {format_relative_change(efficiency.relative_change)}。"
@@ -488,8 +488,8 @@ def _efficiency_comparison(
 ) -> pd.DataFrame:
     labels = {
         "effective_online_rate": "有效在线率",
-        "orders_per_active_driver": "单司机完单",
-        "gmv_per_active_driver": "单司机 GMV",
+        "orders_per_active_driver": "每供给人次完单",
+        "gmv_per_active_driver": "每供给人次 GMV",
         "gmv_per_effective_online_hour": "GMV / 有效在线小时",
         "orders_per_effective_online_hour": "完单 / 有效在线小时",
         "subsidy_rate": "补贴率",
@@ -548,8 +548,8 @@ def _build_anomaly_pool(
         elif diagnosis == SupplyDiagnosis.DRIVER_EFFICIENCY_DECLINE:
             priority = "P1"
             issue = "司机效率下降"
-            judgment = "司机供给增长后，单司机完单与单位有效在线产出同步下降。"
-            action = "检查司机结构、在线时段与热点匹配，减少低产出供给扩张，优先提升单司机有效产出。"
+            judgment = "司机供给人次增长后，每供给人次完单与单位有效在线产出同步下降。"
+            action = "检查司机结构、在线时段与热点匹配，减少低产出供给扩张，优先提升每供给人次有效产出。"
         else:
             priority = "P1"
             issue = "低效运力"
@@ -565,7 +565,7 @@ def _build_anomaly_pool(
                 "问题": issue,
                 "关键证据": (
                     f"需求 {format_relative_change(item['demand_orders_change'])}；"
-                    f"活跃司机 {format_relative_change(item['active_drivers_change'])}；"
+                    f"司机供给人次 {format_relative_change(item['active_drivers_change'])}；"
                     f"有效在线 {format_relative_change(item['effective_online_hours_change'])}；"
                     f"有效在线率 {format_point_change(item['effective_online_rate_change_pp'])}；"
                     f"完单率 {format_point_change(item['completion_rate_change_pp'])}；"
