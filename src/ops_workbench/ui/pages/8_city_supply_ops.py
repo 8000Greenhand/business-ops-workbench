@@ -310,22 +310,6 @@ def _render_city_comparison(data: CitySupplyDashboardData) -> None:
         }
     )
     st.dataframe(display, hide_index=True, width="stretch")
-    charts = st.columns(2)
-    chart_source = frame.rename(
-        columns={"city": "城市", "gmv_current": "GMV", "completion_rate_current": "完单率"}
-    )
-    with charts[0]:
-        st.caption("城市 GMV")
-        _render_bar_chart(chart_source, x="城市", y="GMV", y_title="GMV")
-    with charts[1]:
-        st.caption("城市完单率")
-        _render_bar_chart(
-            chart_source,
-            x="城市",
-            y="完单率",
-            y_title="完单率",
-            percentage=True,
-        )
 
 
 def _render_trends(data: CitySupplyDashboardData) -> None:
@@ -337,7 +321,7 @@ def _render_trends(data: CitySupplyDashboardData) -> None:
     st.markdown("#### 经营结果：GMV 与完单率")
     charts = st.columns(2)
     with charts[0]:
-        _render_line_chart(trend, x="date", y="gmv", y_title="GMV")
+        _render_line_chart(trend, x="date", y="gmv", y_title="GMV", height=210)
     with charts[1]:
         _render_line_chart(
             trend,
@@ -345,17 +329,19 @@ def _render_trends(data: CitySupplyDashboardData) -> None:
             y="completion_rate",
             y_title="完单率",
             percentage=True,
+            height=210,
         )
     st.markdown("#### 运力投入：在线时长与 GMV / 在线小时")
     charts = st.columns(2)
     with charts[0]:
-        _render_line_chart(trend, x="date", y="online_hours", y_title="在线时长")
+        _render_line_chart(trend, x="date", y="online_hours", y_title="在线时长", height=210)
     with charts[1]:
         _render_line_chart(
             trend,
             x="date",
             y="gmv_per_online_hour",
             y_title="GMV / 在线小时",
+            height=210,
         )
 
 
@@ -378,16 +364,31 @@ def _render_supply_diagnosis(data: CitySupplyDashboardData) -> None:
             "诊断": frame["diagnosis"],
         }
     )
-    st.dataframe(
-        display,
-        hide_index=True,
-        width="stretch",
-        height=min(510, 36 + len(display) * 35),
-        column_config={
-            "区域": st.column_config.TextColumn(width="medium"),
-            "诊断": st.column_config.TextColumn(width="medium"),
-        },
-    )
+    abnormal = display[display["诊断"].ne("供需基本稳定")].copy()
+    if abnormal.empty:
+        st.success("当前筛选周期未识别到明显的时空供需异常。")
+    else:
+        st.dataframe(
+            abnormal,
+            hide_index=True,
+            width="stretch",
+            height=min(320, 36 + len(abnormal) * 35),
+            column_config={
+                "区域": st.column_config.TextColumn(width="medium"),
+                "诊断": st.column_config.TextColumn(width="medium"),
+            },
+        )
+    with st.expander(f"查看全部 {len(display)} 条区域 × 时段明细"):
+        st.dataframe(
+            display,
+            hide_index=True,
+            width="stretch",
+            height=min(420, 36 + len(display) * 35),
+            column_config={
+                "区域": st.column_config.TextColumn(width="medium"),
+                "诊断": st.column_config.TextColumn(width="medium"),
+            },
+        )
     st.caption("诊断阈值为模拟经营规则，集中配置在 config/city_supply_ops.yaml。")
 
 
@@ -423,8 +424,9 @@ def _render_efficiency_and_margin(data: CitySupplyDashboardData) -> None:
             "gmv_current": "GMV",
         }
     )
-    st.caption("城市：GMV / 在线小时 vs 毛利率")
-    _render_margin_scatter(scatter)
+    if len(scatter) > 1:
+        st.caption("城市：GMV / 在线小时 vs 毛利率")
+        _render_margin_scatter(scatter)
 
 
 def _render_anomalies(data: CitySupplyDashboardData) -> None:
@@ -461,11 +463,11 @@ def main() -> None:
     if data is None:
         return
     _render_kpis(data)
+    _render_anomalies(data)
     _render_city_comparison(data)
     _render_trends(data)
     _render_supply_diagnosis(data)
     _render_efficiency_and_margin(data)
-    _render_anomalies(data)
 
 
 main()
