@@ -11,6 +11,7 @@ from ops_workbench.ui.city_supply_dashboard import (
     CitySupplyDashboardData,
     build_city_supply_dashboard,
     default_period,
+    finite_chart_rows,
     format_hours,
     format_money,
     format_percentage,
@@ -34,6 +35,138 @@ TIME_OPTIONS = {"全部时段": None, **{label: key for key, label in TIME_BUCKE
 def _cached_facts() -> pd.DataFrame:
     """Generate the fixed-seed V0.1 simulation once per Streamlit cache."""
     return load_city_supply_facts()
+
+
+def _render_line_chart(
+    frame: pd.DataFrame,
+    *,
+    x: str,
+    y: str,
+    y_title: str,
+    percentage: bool = False,
+    height: int = 250,
+) -> None:
+    """Render a finite-only Vega-Lite line chart with business-friendly axes."""
+    safe = finite_chart_rows(frame, (y,))
+    if safe.empty:
+        st.info("当前筛选周期暂无可用于绘图的数据。")
+        return
+    y_axis = {"title": y_title}
+    tooltip = {"field": y, "type": "quantitative", "title": y_title}
+    if percentage:
+        y_axis["format"] = ".0%"
+        tooltip["format"] = ".1%"
+    st.vega_lite_chart(
+        safe,
+        {
+            "mark": {"type": "line", "point": False},
+            "encoding": {
+                "x": {"field": x, "type": "temporal", "title": None},
+                "y": {"field": y, "type": "quantitative", "axis": y_axis},
+                "tooltip": [
+                    {"field": x, "type": "temporal", "title": "日期"},
+                    tooltip,
+                ],
+            },
+            "height": height,
+        },
+        use_container_width=True,
+    )
+
+
+def _render_bar_chart(
+    frame: pd.DataFrame,
+    *,
+    x: str,
+    y: str,
+    y_title: str,
+    percentage: bool = False,
+    height: int = 250,
+) -> None:
+    """Render a finite-only categorical bar chart."""
+    safe = finite_chart_rows(frame, (y,))
+    if safe.empty:
+        st.info("当前筛选周期暂无可用于绘图的数据。")
+        return
+    y_axis = {"title": y_title}
+    tooltip = {"field": y, "type": "quantitative", "title": y_title}
+    if percentage:
+        y_axis["format"] = ".0%"
+        tooltip["format"] = ".1%"
+    st.vega_lite_chart(
+        safe,
+        {
+            "mark": {"type": "bar"},
+            "encoding": {
+                "x": {"field": x, "type": "nominal", "title": None},
+                "y": {"field": y, "type": "quantitative", "axis": y_axis},
+                "tooltip": [
+                    {"field": x, "type": "nominal", "title": x},
+                    tooltip,
+                ],
+            },
+            "height": height,
+        },
+        use_container_width=True,
+    )
+
+
+def _render_margin_scatter(frame: pd.DataFrame) -> None:
+    """Render the city efficiency-versus-margin view with a percentage y-axis."""
+    safe = finite_chart_rows(frame, ("GMV/在线小时", "毛利率", "GMV"))
+    if safe.empty:
+        st.info("当前筛选周期暂无可用于绘图的数据。")
+        return
+    st.vega_lite_chart(
+        safe,
+        {
+            "mark": {"type": "circle", "opacity": 0.78},
+            "encoding": {
+                "x": {
+                    "field": "GMV/在线小时",
+                    "type": "quantitative",
+                    "title": "GMV / 在线小时（元）",
+                },
+                "y": {
+                    "field": "毛利率",
+                    "type": "quantitative",
+                    "title": "毛利率",
+                    "axis": {"format": ".0%"},
+                },
+                "color": {"field": "城市", "type": "nominal", "title": "城市"},
+                "size": {"field": "GMV", "type": "quantitative", "title": "GMV"},
+                "tooltip": [
+                    {"field": "城市", "type": "nominal", "title": "城市"},
+                    {
+                        "field": "GMV/在线小时",
+                        "type": "quantitative",
+                        "title": "GMV / 在线小时",
+                        "format": ".1f",
+                    },
+                    {
+                        "field": "毛利率",
+                        "type": "quantitative",
+                        "title": "毛利率",
+                        "format": ".1%",
+                    },
+                    {"field": "GMV", "type": "quantitative", "title": "GMV", "format": ",.0f"},
+                ],
+            },
+            "height": 320,
+        },
+        use_container_width=True,
+    )
+
+
+def _render_anomaly_card(row: pd.Series) -> None:
+    """Render one complete decision chain without horizontal truncation."""
+    with st.container(border=True):
+        st.markdown(
+            f"**{row['优先级']} · {row['城市']} · {row['区域/时段']} · {row['问题']}**"
+        )
+        st.caption(f"关键证据｜{row['关键证据']}")
+        st.markdown(f"**经营判断：** {row['经营判断']}")
+        st.markdown(f"**建议动作：** {row['建议动作']}")
 
 
 def _metric_detail(
@@ -178,13 +311,21 @@ def _render_city_comparison(data: CitySupplyDashboardData) -> None:
     )
     st.dataframe(display, hide_index=True, width="stretch")
     charts = st.columns(2)
-    chart_source = frame.set_index("city")
+    chart_source = frame.rename(
+        columns={"city": "城市", "gmv_current": "GMV", "completion_rate_current": "完单率"}
+    )
     with charts[0]:
         st.caption("城市 GMV")
-        st.bar_chart(chart_source[["gmv_current"]], height=250)
+        _render_bar_chart(chart_source, x="城市", y="GMV", y_title="GMV")
     with charts[1]:
         st.caption("城市完单率")
-        st.bar_chart(chart_source[["completion_rate_current"]], height=250)
+        _render_bar_chart(
+            chart_source,
+            x="城市",
+            y="完单率",
+            y_title="完单率",
+            percentage=True,
+        )
 
 
 def _render_trends(data: CitySupplyDashboardData) -> None:
@@ -192,19 +333,30 @@ def _render_trends(data: CitySupplyDashboardData) -> None:
         "核心趋势",
         "按日查看结果变化，并核对在线供给增长后效率是否同步改善。",
     )
-    trend = data.daily_trend.set_index("date")
+    trend = data.daily_trend.copy()
     st.markdown("#### 经营结果：GMV 与完单率")
     charts = st.columns(2)
     with charts[0]:
-        st.line_chart(trend[["gmv"]], height=250)
+        _render_line_chart(trend, x="date", y="gmv", y_title="GMV")
     with charts[1]:
-        st.line_chart(trend[["completion_rate"]], height=250)
+        _render_line_chart(
+            trend,
+            x="date",
+            y="completion_rate",
+            y_title="完单率",
+            percentage=True,
+        )
     st.markdown("#### 运力投入：在线时长与 GMV / 在线小时")
     charts = st.columns(2)
     with charts[0]:
-        st.line_chart(trend[["online_hours"]], height=250)
+        _render_line_chart(trend, x="date", y="online_hours", y_title="在线时长")
     with charts[1]:
-        st.line_chart(trend[["gmv_per_online_hour"]], height=250)
+        _render_line_chart(
+            trend,
+            x="date",
+            y="gmv_per_online_hour",
+            y_title="GMV / 在线小时",
+        )
 
 
 def _render_supply_diagnosis(data: CitySupplyDashboardData) -> None:
@@ -272,14 +424,7 @@ def _render_efficiency_and_margin(data: CitySupplyDashboardData) -> None:
         }
     )
     st.caption("城市：GMV / 在线小时 vs 毛利率")
-    st.scatter_chart(
-        scatter,
-        x="GMV/在线小时",
-        y="毛利率",
-        color="城市",
-        size="GMV",
-        height=320,
-    )
+    _render_margin_scatter(scatter)
 
 
 def _render_anomalies(data: CitySupplyDashboardData) -> None:
@@ -288,23 +433,16 @@ def _render_anomalies(data: CitySupplyDashboardData) -> None:
         "将问题、证据、经营判断和建议动作放在同一条决策链上。",
     )
     if data.anomalies.empty:
-        st.success("当前周期未触发显著的供需、效率或毛利规则。")
+        st.success("当前筛选周期未发现 P0/P1 经营异常。")
         return
-    st.dataframe(
-        data.anomalies,
-        hide_index=True,
-        width="stretch",
-        height=min(510, 36 + len(data.anomalies) * 44),
-        column_config={
-            "优先级": st.column_config.TextColumn(width="small"),
-            "城市": st.column_config.TextColumn(width="small"),
-            "区域/时段": st.column_config.TextColumn(width="medium"),
-            "问题": st.column_config.TextColumn(width="medium"),
-            "关键证据": st.column_config.TextColumn(width="large"),
-            "经营判断": st.column_config.TextColumn(width="large"),
-            "建议动作": st.column_config.TextColumn(width="large"),
-        },
-    )
+    visible = data.anomalies.head(6)
+    for _, row in visible.iterrows():
+        _render_anomaly_card(row)
+    remaining = data.anomalies.iloc[6:]
+    if not remaining.empty:
+        with st.expander(f"查看其余 {len(remaining)} 条异常"):
+            for _, row in remaining.iterrows():
+                _render_anomaly_card(row)
 
 
 def main() -> None:
