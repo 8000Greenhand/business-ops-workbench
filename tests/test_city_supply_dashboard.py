@@ -44,7 +44,15 @@ def test_dashboard_data_assembly_succeeds(facts: pd.DataFrame) -> None:
     start, end = default_period(facts)
     data = build_city_supply_dashboard(facts, current_start=start, current_end=end)
     assert data.periods.days == 30
-    assert set(data.overview) >= {"gmv", "completion_rate", "gross_margin"}
+    assert set(data.overview) >= {
+        "gmv",
+        "completion_rate",
+        "gross_margin",
+        "active_drivers",
+        "effective_online_hours",
+        "effective_online_rate",
+        "gmv_per_effective_online_hour",
+    }
     assert set(data.city_comparison["city"]) == {"成都", "重庆", "昆明", "贵阳"}
     assert not data.daily_trend.empty
     assert not data.supply_diagnosis.empty
@@ -156,6 +164,30 @@ def test_city_completion_rate_uses_weighted_additive_totals(
     assert row["completion_rate_current"] == pytest.approx(expected)
 
 
+def test_v2_driver_supply_constraints_hold_at_fact_grain(
+    facts: pd.DataFrame,
+) -> None:
+    assert (facts["online_drivers"] <= facts["active_drivers"]).all()
+    assert (facts["effective_online_drivers"] <= facts["online_drivers"]).all()
+    assert (facts["effective_online_hours"] <= facts["online_hours"]).all()
+
+
+def test_effective_online_rate_recomputes_after_aggregation(
+    facts: pd.DataFrame,
+) -> None:
+    current = facts[
+        facts["date"].between(
+            pd.Timestamp(SCENARIO_A.start_date), pd.Timestamp(SCENARIO_A.end_date)
+        )
+        & facts["city"].eq("成都")
+    ]
+    aggregated = aggregate_city_supply_metrics(current).iloc[0]
+    expected = (
+        current["effective_online_hours"].sum() / current["online_hours"].sum()
+    )
+    assert aggregated["effective_online_rate"] == pytest.approx(expected)
+
+
 def test_percentage_point_change_is_not_relative_growth(facts: pd.DataFrame) -> None:
     data = build_city_supply_dashboard(
         facts,
@@ -236,8 +268,44 @@ def test_low_efficiency_rule_requires_online_growth_and_output_lag() -> None:
         gmv_change=0.03,
         efficiency_change=-0.31,
         policy=policy,
+        effective_online_hours_change=0.45,
+        effective_efficiency_change=-0.30,
     )
     assert result == SupplyDiagnosis.EXCESS_SUPPLY
+
+
+def test_effective_supply_gap_is_distinct_from_total_online_supply() -> None:
+    policy = load_city_supply_policy()
+    result = diagnose_supply(
+        demand_change=0.10,
+        online_hours_change=0.30,
+        completion_rate_change_pp=-0.08,
+        gmv_change=0.04,
+        efficiency_change=-0.04,
+        policy=policy,
+        effective_online_hours_change=0.16,
+        effective_online_rate_change_pp=-0.10,
+        effective_efficiency_change=-0.06,
+    )
+    assert result == SupplyDiagnosis.EFFECTIVE_SUPPLY_GAP
+
+
+def test_driver_efficiency_decline_uses_driver_supply_and_output_together() -> None:
+    policy = load_city_supply_policy()
+    result = diagnose_supply(
+        demand_change=0.08,
+        online_hours_change=0.12,
+        completion_rate_change_pp=-0.01,
+        gmv_change=0.03,
+        efficiency_change=-0.11,
+        policy=policy,
+        effective_online_hours_change=0.12,
+        effective_online_rate_change_pp=0.00,
+        active_drivers_change=0.20,
+        orders_per_active_driver_change=-0.15,
+        effective_efficiency_change=-0.12,
+    )
+    assert result == SupplyDiagnosis.DRIVER_EFFICIENCY_DECLINE
 
 
 def test_scenario_a_is_a_p0_supply_gap(facts: pd.DataFrame) -> None:
@@ -261,7 +329,7 @@ def test_scenario_b_is_identified_as_low_efficiency_supply(facts: pd.DataFrame) 
         current_end=SCENARIO_B.end_date,
         city="重庆",
     )
-    assert set(data.anomalies["问题"]) == {"低效运力"}
+    assert set(data.anomalies["问题"]) == {"运力偏富余"}
     assert all("日间平峰" in scope for scope in data.anomalies["区域/时段"])
 
 
@@ -328,7 +396,7 @@ def test_streamlit_filters_surface_all_three_simulated_scenarios() -> None:
     assert not app.exception
     checks = (
         (SCENARIO_A, "成都", "运力缺口"),
-        (SCENARIO_B, "重庆", "低效运力"),
+        (SCENARIO_B, "重庆", "运力偏富余"),
         (SCENARIO_C, "昆明", "毛利逼近红线"),
     )
     for scenario, city, expected_issue in checks:
@@ -346,7 +414,7 @@ def test_streamlit_filters_surface_all_three_simulated_scenarios() -> None:
             assert "P0 运力缺口｜成都东站晚高峰" in visible
             assert "定位路径：成都 → 成都东站 → 晚高峰" in visible
             assert (
-                "重点提升晚高峰目标区域有效在线供给，通过司机激励、热区运营等方式补充短时运力，避免扩大无效补贴覆盖。"
+                "提升目标区域与时段的有效在线供给，优先采用定向司机激励、热区引导与短时运力补充，避免全面加补贴。"
                 in visible
             )
 
