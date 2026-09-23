@@ -209,8 +209,11 @@ def test_default_policy_is_explicitly_simulated_and_configurable() -> None:
 
 def test_policy_loader_honors_a_custom_margin_floor(tmp_path: Path) -> None:
     path = tmp_path / "city_supply_ops.yaml"
+    default_policy = (
+        Path(__file__).resolve().parents[1] / "config" / "city_supply_ops.yaml"
+    ).read_text(encoding="utf-8")
     path.write_text(
-        'scope_label: "模拟经营口径"\ngross_margin_floor: 0.12\n',
+        default_policy.replace("gross_margin_floor: 0.05", "gross_margin_floor: 0.12"),
         encoding="utf-8",
     )
     policy = load_city_supply_policy(path)

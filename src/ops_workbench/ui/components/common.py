@@ -233,13 +233,15 @@ def _apply_visual_system() -> None:
         section[data-testid="stSidebar"] > div { padding-top: 1rem; }
         [data-testid="stSidebar"] label { color: #344054; font-size: .82rem; font-weight: 600; }
         [data-testid="stSidebar"] [data-baseweb="select"] > div { border-color: var(--ops-border); border-radius: 8px; }
-        [data-testid="stSidebarNav"] a[href*="ysb_dashboard_a"], [data-testid="stSidebarNav"] a[href*="ysb_dashboard_b"] { min-height: 2.2rem; display: flex; align-items: center; color: var(--ops-text) !important; opacity: 1; }
+        [data-testid="stSidebarNav"] a[href*="ysb_dashboard_a"], [data-testid="stSidebarNav"] a[href*="ysb_dashboard_b"], [data-testid="stSidebarNav"] a[href*="city_supply_ops"] { min-height: 2.2rem; display: flex; align-items: center; color: var(--ops-text) !important; opacity: 1; }
         [data-testid="stSidebarNav"] a[href*="ysb_dashboard_a"] * { font-size: 0 !important; }
         [data-testid="stSidebarNav"] a[href*="ysb_dashboard_a"]:after { content: "区域商家经营"; color: var(--ops-text); font-size: .9rem; font-weight: 600; }
         [data-testid="stSidebarNav"] a[href*="ysb_dashboard_b"] * { font-size: 0 !important; }
         [data-testid="stSidebarNav"] a[href*="ysb_dashboard_b"]:after { content: "单商家经营诊断"; color: var(--ops-text); font-size: .9rem; font-weight: 600; }
-        [data-testid="stSidebarNav"] a:not([href*="ysb_dashboard_a"]):not([href*="ysb_dashboard_b"]) { display: none; }
-        [data-testid="stSidebarNav"] li:has(a:not([href*="ysb_dashboard_a"]):not([href*="ysb_dashboard_b"])) { display: none; }
+        [data-testid="stSidebarNav"] a[href*="city_supply_ops"] * { font-size: 0 !important; }
+        [data-testid="stSidebarNav"] a[href*="city_supply_ops"]:after { content: "城市运力经营"; color: var(--ops-text); font-size: .9rem; font-weight: 600; }
+        [data-testid="stSidebarNav"] a:not([href*="ysb_dashboard_a"]):not([href*="ysb_dashboard_b"]):not([href*="city_supply_ops"]) { display: none; }
+        [data-testid="stSidebarNav"] li:has(a:not([href*="ysb_dashboard_a"]):not([href*="ysb_dashboard_b"]):not([href*="city_supply_ops"])) { display: none; }
         [data-testid="stSidebarNav"]:before { content: "业务看板"; display: block; margin: .25rem .7rem .45rem;
                                                 color: var(--ops-muted); font-size: .75rem; font-weight: 700; }
         .ops-page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 1.5rem;
