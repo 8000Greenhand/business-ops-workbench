@@ -131,6 +131,23 @@ def test_percentage_chart_specs_use_percentage_axis_and_tooltip() -> None:
     assert '"format": ".1%"' in source
 
 
+def test_default_period_surfaces_material_margin_buffer_deterioration(
+    facts: pd.DataFrame,
+) -> None:
+    start, end = default_period(facts)
+    data = build_city_supply_dashboard(facts, current_start=start, current_end=end)
+    attention = data.anomalies[data.anomalies["问题"].eq("毛利缓冲收窄")]
+    assert not attention.empty
+    assert "昆明" in set(attention["城市"])
+    assert set(attention["优先级"]) == {"P2"}
+
+
+def test_chart_dates_use_compact_numeric_labels() -> None:
+    source = PAGE.read_text(encoding="utf-8")
+    assert '"format": "%m-%d"' in source
+    assert '"format": "%Y-%m-%d"' in source
+
+
 def test_margin_band_has_safe_near_and_at_floor_states() -> None:
     policy = load_city_supply_policy()
     assert classify_gross_margin(0.20, policy) == GrossMarginBand.SAFE
