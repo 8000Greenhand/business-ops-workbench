@@ -1,4 +1,4 @@
-"""Tests for the V0.1 city supply operating foundation."""
+"""Tests for the V2 city supply operating foundation."""
 
 from __future__ import annotations
 
@@ -231,11 +231,31 @@ def _small_frame(
     completed_orders: float = 80,
     gmv: float = 2_400,
     online_hours: float = 40,
+    active_drivers: float | None = None,
+    online_drivers: float | None = None,
+    effective_online_drivers: float | None = None,
+    effective_online_hours: float | None = None,
     platform_revenue: float = 500,
     driver_subsidy: float = 100,
     other_variable_cost: float = 50,
     zone: str = "A",
 ) -> pd.DataFrame:
+    active_driver_value = (
+        online_hours / 2 if active_drivers is None else active_drivers
+    )
+    online_driver_value = (
+        active_driver_value * 0.9 if online_drivers is None else online_drivers
+    )
+    effective_driver_value = (
+        online_driver_value * 0.9
+        if effective_online_drivers is None
+        else effective_online_drivers
+    )
+    effective_hours_value = (
+        online_hours * 0.9
+        if effective_online_hours is None
+        else effective_online_hours
+    )
     return pd.DataFrame(
         [
             {
@@ -247,6 +267,10 @@ def _small_frame(
                 "completed_orders": completed_orders,
                 "gmv": gmv,
                 "online_hours": online_hours,
+                "active_drivers": active_driver_value,
+                "online_drivers": online_driver_value,
+                "effective_online_drivers": effective_driver_value,
+                "effective_online_hours": effective_hours_value,
                 "platform_revenue": platform_revenue,
                 "driver_subsidy": driver_subsidy,
                 "other_variable_cost": other_variable_cost,
