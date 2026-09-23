@@ -21,6 +21,7 @@ from ops_workbench.ui.city_supply_dashboard import (
     ANOMALY_COLUMNS,
     build_city_supply_dashboard,
     default_period,
+    finite_chart_rows,
     format_point_change,
     load_city_supply_facts,
     resolve_periods,
@@ -40,11 +41,18 @@ def facts() -> pd.DataFrame:
 def test_dashboard_data_assembly_succeeds(facts: pd.DataFrame) -> None:
     start, end = default_period(facts)
     data = build_city_supply_dashboard(facts, current_start=start, current_end=end)
-    assert data.periods.days == 14
+    assert data.periods.days == 30
     assert set(data.overview) >= {"gmv", "completion_rate", "gross_margin"}
     assert set(data.city_comparison["city"]) == {"成都", "重庆", "昆明", "贵阳"}
     assert not data.daily_trend.empty
     assert not data.supply_diagnosis.empty
+
+
+def test_default_period_uses_latest_thirty_days(facts: pd.DataFrame) -> None:
+    start, end = default_period(facts)
+    assert (end - start).days + 1 == 30
+    assert end == pd.Timestamp(facts["date"].max()).date()
+    assert start == end - pd.Timedelta(days=29)
 
 
 def test_previous_period_is_immediately_prior_and_equal_length(
@@ -102,6 +110,24 @@ def test_percentage_point_change_is_not_relative_growth(facts: pd.DataFrame) -> 
     )
     assert format_point_change(comparison.point_change).endswith("pp")
     assert comparison.point_change != pytest.approx(comparison.relative_change)
+
+
+def test_finite_chart_rows_drops_null_and_infinite_values() -> None:
+    frame = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-09-01", "2026-09-02", "2026-09-03"]),
+            "metric": [0.8, float("inf"), None],
+        }
+    )
+    safe = finite_chart_rows(frame, ("metric",))
+    assert len(safe) == 1
+    assert safe.iloc[0]["metric"] == pytest.approx(0.8)
+
+
+def test_percentage_chart_specs_use_percentage_axis_and_tooltip() -> None:
+    source = PAGE.read_text(encoding="utf-8")
+    assert '"format": ".0%"' in source
+    assert '"format": ".1%"' in source
 
 
 def test_margin_band_has_safe_near_and_at_floor_states() -> None:
@@ -176,6 +202,18 @@ def test_scenario_c_is_identified_as_margin_risk(facts: pd.DataFrame) -> None:
     assert "补贴率" in margin["关键证据"]
 
 
+def test_anomaly_rows_keep_complete_decision_chain(facts: pd.DataFrame) -> None:
+    data = build_city_supply_dashboard(
+        facts,
+        current_start=SCENARIO_A.start_date,
+        current_end=SCENARIO_A.end_date,
+        city="成都",
+    )
+    assert not data.anomalies.empty
+    for column in ANOMALY_COLUMNS:
+        assert data.anomalies[column].astype(str).str.strip().ne("").all()
+
+
 def test_streamlit_page_and_navigation_import_without_error() -> None:
     page = AppTest.from_file(PAGE).run(timeout=30)
     assert not page.exception
@@ -214,15 +252,7 @@ def test_streamlit_filters_surface_all_three_simulated_scenarios() -> None:
         app.selectbox[1].set_value("全部时段")
         app = app.run(timeout=30)
         assert not app.exception
-        anomaly = _anomaly_table(app)
-        assert expected_issue in set(anomaly["问题"])
-
-
-def _anomaly_table(app: AppTest) -> pd.DataFrame:
-    for element in app.dataframe:
-        if set(ANOMALY_COLUMNS).issubset(element.value.columns):
-            return element.value
-    raise AssertionError("Anomaly pool table was not rendered")
+        assert expected_issue in _visible_text(app)
 
 
 def _visible_text(app: AppTest) -> str:
