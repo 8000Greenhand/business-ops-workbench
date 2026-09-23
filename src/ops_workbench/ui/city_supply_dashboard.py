@@ -32,6 +32,7 @@ COMPARISON_METRICS = (
     "gross_margin",
     "online_hours",
     "completed_orders",
+    "avg_order_value",
     "gmv_per_online_hour",
     "orders_per_online_hour",
     "subsidy_rate",
@@ -80,6 +81,8 @@ class CitySupplyDashboardData:
     city: str | None
     time_bucket: str | None
     overview: dict[str, MetricComparison]
+    result_decomposition: pd.DataFrame
+    diagnostic_summary: tuple[str, ...]
     city_comparison: pd.DataFrame
     daily_trend: pd.DataFrame
     supply_diagnosis: pd.DataFrame
@@ -158,6 +161,8 @@ def build_city_supply_dashboard(
         raise ValueError("当前筛选条件下没有完整的本期与上期数据")
 
     overview = _overview(current, baseline)
+    result_decomposition = _result_decomposition(overview)
+    diagnostic_summary = _build_diagnostic_summary(overview, result_decomposition)
     city_comparison = _comparison_frame(current, baseline, ("city",))
     supply = _comparison_frame(
         current,
@@ -184,12 +189,11 @@ def build_city_supply_dashboard(
         city=city,
         time_bucket=time_bucket,
         overview=overview,
+        result_decomposition=result_decomposition,
+        diagnostic_summary=diagnostic_summary,
         city_comparison=city_comparison.sort_values("gmv_current", ascending=False),
         daily_trend=daily_trend.sort_values("date"),
-        supply_diagnosis=supply.sort_values(
-            ["diagnosis", "completion_rate_change_pp", "gmv_change"],
-            ascending=[True, True, True],
-        ),
+        supply_diagnosis=_sort_supply_diagnosis(supply),
         efficiency_comparison=efficiency_comparison,
         anomalies=anomalies,
         margin_band=classify_gross_margin(gross_margin, active_policy),
@@ -300,6 +304,135 @@ def _comparison_frame(
                 compared[f"{metric}_current"] - compared[f"{metric}_baseline"]
             )
     return compared
+
+
+def _result_decomposition(
+    overview: dict[str, MetricComparison],
+) -> pd.DataFrame:
+    """Decompose GMV and completed-order changes into exact two-factor bridges."""
+    gmv_rows = _multiplicative_bridge(
+        total_metric="gmv",
+        factor_a_metric="completed_orders",
+        factor_b_metric="avg_order_value",
+        factor_a_label="完成订单量效应",
+        factor_b_label="客单价效应",
+        bridge_label="GMV",
+        overview=overview,
+    )
+    order_rows = _multiplicative_bridge(
+        total_metric="completed_orders",
+        factor_a_metric="demand_orders",
+        factor_b_metric="completion_rate",
+        factor_a_label="需求订单量效应",
+        factor_b_label="完单率效应",
+        bridge_label="完成订单量",
+        overview=overview,
+    )
+    return pd.DataFrame([*gmv_rows, *order_rows])
+
+
+def _multiplicative_bridge(
+    *,
+    total_metric: str,
+    factor_a_metric: str,
+    factor_b_metric: str,
+    factor_a_label: str,
+    factor_b_label: str,
+    bridge_label: str,
+    overview: dict[str, MetricComparison],
+) -> list[dict[str, object]]:
+    """Return an exact midpoint decomposition for y=a*b."""
+    total = overview[total_metric]
+    factor_a = overview[factor_a_metric]
+    factor_b = overview[factor_b_metric]
+    values = (
+        total.current,
+        total.baseline,
+        factor_a.current,
+        factor_a.baseline,
+        factor_b.current,
+        factor_b.baseline,
+    )
+    if any(value is None for value in values):
+        return []
+    a1 = float(factor_a.current)
+    a0 = float(factor_a.baseline)
+    b1 = float(factor_b.current)
+    b0 = float(factor_b.baseline)
+    contribution_a = (a1 - a0) * (b1 + b0) / 2
+    contribution_b = (b1 - b0) * (a1 + a0) / 2
+    total_change = float(total.current) - float(total.baseline)
+    return [
+        {
+            "bridge": bridge_label,
+            "driver": factor_a_label,
+            "contribution": contribution_a,
+            "total_change": total_change,
+        },
+        {
+            "bridge": bridge_label,
+            "driver": factor_b_label,
+            "contribution": contribution_b,
+            "total_change": total_change,
+        },
+    ]
+
+
+def _build_diagnostic_summary(
+    overview: dict[str, MetricComparison],
+    decomposition: pd.DataFrame,
+) -> tuple[str, ...]:
+    """Build concise factual prompts that connect result, demand, supply and efficiency."""
+    messages: list[str] = []
+    gmv = overview["gmv"]
+    orders = overview["completed_orders"]
+    aov = overview["avg_order_value"]
+    demand = overview["demand_orders"]
+    completion = overview["completion_rate"]
+    online = overview["online_hours"]
+    efficiency = overview["gmv_per_online_hour"]
+    margin = overview["gross_margin"]
+
+    if gmv.relative_change is not None:
+        messages.append(
+            "经营结果："
+            f"GMV {format_relative_change(gmv.relative_change)}，"
+            f"完成订单 {format_relative_change(orders.relative_change)}，"
+            f"客单价 {format_relative_change(aov.relative_change)}。"
+        )
+    if demand.relative_change is not None and completion.point_change is not None:
+        messages.append(
+            "订单形成："
+            f"需求订单 {format_relative_change(demand.relative_change)}，"
+            f"完单率 {format_point_change(completion.point_change)}，"
+            "可结合下方订单拆解判断增长主要来自需求还是履约改善。"
+        )
+    if online.relative_change is not None and efficiency.relative_change is not None:
+        relation = "快于" if (
+            gmv.relative_change is not None and online.relative_change > gmv.relative_change
+        ) else "慢于或接近"
+        messages.append(
+            "运力效率："
+            f"在线时长 {format_relative_change(online.relative_change)}，"
+            f"{relation} GMV 变化；GMV/在线小时 "
+            f"{format_relative_change(efficiency.relative_change)}。"
+        )
+    if margin.point_change is not None:
+        messages.append(
+            "增长质量："
+            f"毛利率 {format_point_change(margin.point_change)}，"
+            f"当前 {format_percentage(margin.current)}。"
+        )
+    if not decomposition.empty:
+        for bridge in ("GMV", "完成订单量"):
+            part = decomposition[decomposition["bridge"].eq(bridge)]
+            if part.empty:
+                continue
+            strongest = part.iloc[part["contribution"].abs().argmax()]
+            messages.append(
+                f"{bridge}拆解：绝对影响最大的驱动项为{strongest['driver']}。"
+            )
+    return tuple(messages)
 
 
 def _efficiency_comparison(
@@ -429,6 +562,26 @@ def _build_anomaly_pool(
     return (
         result.sort_values(["_priority", "城市", "区域/时段"])
         .drop(columns="_priority")
+        .reset_index(drop=True)
+    )
+
+
+def _sort_supply_diagnosis(frame: pd.DataFrame) -> pd.DataFrame:
+    """Keep anomalies first while retaining the full region-by-time comparison table."""
+    priority = {
+        SupplyDiagnosis.SUPPLY_GAP.value: 0,
+        SupplyDiagnosis.EXCESS_SUPPLY.value: 1,
+        SupplyDiagnosis.EFFICIENCY_DECLINE.value: 2,
+        SupplyDiagnosis.STABLE.value: 3,
+    }
+    result = frame.copy()
+    result["_diagnosis_rank"] = result["diagnosis"].map(priority).fillna(9)
+    return (
+        result.sort_values(
+            ["_diagnosis_rank", "completion_rate_change_pp", "gmv_change"],
+            ascending=[True, True, True],
+        )
+        .drop(columns="_diagnosis_rank")
         .reset_index(drop=True)
     )
 
