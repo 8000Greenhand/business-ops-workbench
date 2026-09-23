@@ -31,13 +31,32 @@ COMPARISON_METRICS = (
     "completion_rate",
     "gross_margin",
     "online_hours",
+    "active_drivers",
+    "online_drivers",
+    "effective_online_drivers",
+    "effective_online_hours",
     "completed_orders",
     "avg_order_value",
     "gmv_per_online_hour",
     "orders_per_online_hour",
+    "effective_online_rate",
+    "drivers_effective_rate",
+    "demand_per_effective_driver",
+    "orders_per_active_driver",
+    "gmv_per_active_driver",
+    "online_hours_per_active_driver",
+    "gmv_per_effective_online_hour",
+    "orders_per_effective_online_hour",
     "subsidy_rate",
     "demand_orders",
 )
+POINT_CHANGE_METRICS = {
+    "completion_rate",
+    "gross_margin",
+    "subsidy_rate",
+    "effective_online_rate",
+    "drivers_effective_rate",
+}
 ANOMALY_COLUMNS = (
     "优先级",
     "城市",
@@ -183,6 +202,19 @@ def build_city_supply_dashboard(
             gmv_change=_optional_float(row["gmv_change"]),
             efficiency_change=_optional_float(row["gmv_per_online_hour_change"]),
             policy=active_policy,
+            effective_online_hours_change=_optional_float(
+                row["effective_online_hours_change"]
+            ),
+            effective_online_rate_change_pp=_optional_float(
+                row["effective_online_rate_change_pp"]
+            ),
+            active_drivers_change=_optional_float(row["active_drivers_change"]),
+            orders_per_active_driver_change=_optional_float(
+                row["orders_per_active_driver_change"]
+            ),
+            effective_efficiency_change=_optional_float(
+                row["gmv_per_effective_online_hour_change"]
+            ),
         ).value,
         axis=1,
     )
@@ -281,7 +313,7 @@ def _overview(
             ),
             point_change=(
                 _point_change(current_metrics[metric], baseline_metrics[metric])
-                if metric in {"completion_rate", "gross_margin", "subsidy_rate"}
+                if metric in POINT_CHANGE_METRICS
                 else None
             ),
         )
@@ -310,7 +342,7 @@ def _comparison_frame(
             ),
             axis=1,
         )
-        if metric in {"completion_rate", "gross_margin", "subsidy_rate"}:
+        if metric in POINT_CHANGE_METRICS:
             compared[f"{metric}_change_pp"] = (
                 compared[f"{metric}_current"] - compared[f"{metric}_baseline"]
             )
@@ -401,7 +433,10 @@ def _build_diagnostic_summary(
     demand = overview["demand_orders"]
     completion = overview["completion_rate"]
     online = overview["online_hours"]
-    efficiency = overview["gmv_per_online_hour"]
+    active_drivers = overview["active_drivers"]
+    effective_hours = overview["effective_online_hours"]
+    effective_rate = overview["effective_online_rate"]
+    efficiency = overview["gmv_per_effective_online_hour"]
     margin = overview["gross_margin"]
 
     if gmv.relative_change is not None:
@@ -418,15 +453,17 @@ def _build_diagnostic_summary(
             f"完单率 {format_point_change(completion.point_change)}，"
             "可结合下方订单拆解判断增长主要来自需求还是履约改善。"
         )
-    if online.relative_change is not None and efficiency.relative_change is not None:
-        relation = "快于" if (
-            gmv.relative_change is not None and online.relative_change > gmv.relative_change
-        ) else "慢于或接近"
+    if (
+        active_drivers.relative_change is not None
+        and effective_hours.relative_change is not None
+        and efficiency.relative_change is not None
+    ):
         messages.append(
-            "运力效率："
-            f"在线时长 {format_relative_change(online.relative_change)}，"
-            f"{relation} GMV 变化；GMV/在线小时 "
-            f"{format_relative_change(efficiency.relative_change)}。"
+            "司机供给："
+            f"活跃司机 {format_relative_change(active_drivers.relative_change)}，"
+            f"有效在线时长 {format_relative_change(effective_hours.relative_change)}，"
+            f"有效在线率 {format_point_change(effective_rate.point_change)}；"
+            f"GMV/有效在线小时 {format_relative_change(efficiency.relative_change)}。"
         )
     if margin.point_change is not None:
         messages.append(
@@ -450,8 +487,11 @@ def _efficiency_comparison(
     overview: dict[str, MetricComparison],
 ) -> pd.DataFrame:
     labels = {
-        "gmv_per_online_hour": "GMV / 在线小时",
-        "orders_per_online_hour": "完单 / 在线小时",
+        "effective_online_rate": "有效在线率",
+        "orders_per_active_driver": "单司机完单",
+        "gmv_per_active_driver": "单司机 GMV",
+        "gmv_per_effective_online_hour": "GMV / 有效在线小时",
+        "orders_per_effective_online_hour": "完单 / 有效在线小时",
         "subsidy_rate": "补贴率",
         "gross_margin": "毛利率",
     }
@@ -466,7 +506,7 @@ def _efficiency_comparison(
                 "本期": comparison.current,
                 "变化": (
                     comparison.point_change
-                    if metric in {"subsidy_rate", "gross_margin"}
+                    if metric in {"subsidy_rate", "gross_margin", "effective_online_rate"}
                     else comparison.relative_change
                 ),
             }
@@ -485,25 +525,36 @@ def _build_anomaly_pool(
         if diagnosis == SupplyDiagnosis.STABLE:
             continue
         completion_pp = _optional_float(item["completion_rate_change_pp"])
-        is_gap = diagnosis == SupplyDiagnosis.SUPPLY_GAP
-        priority = (
-            "P0"
-            if is_gap
-            and completion_pp is not None
-            and completion_pp <= policy.severe_completion_drop_pp
-            else "P1"
-        )
-        issue = "运力缺口" if is_gap else "低效运力"
-        judgment = (
-            "需求增长与有效在线供给变化不同步，完单率同步下降。"
-            if is_gap
-            else "在线供给增长未转化为同等幅度的有效交易。"
-        )
-        action = (
-            "重点提升晚高峰目标区域有效在线供给，通过司机激励、热区运营等方式补充短时运力，避免扩大无效补贴覆盖。"
-            if is_gap
-            else "收缩低效率时段增量，将供给转向需求更强的区域与时段。"
-        )
+        if diagnosis == SupplyDiagnosis.SUPPLY_GAP:
+            priority = (
+                "P0"
+                if completion_pp is not None
+                and completion_pp <= policy.severe_completion_drop_pp
+                else "P1"
+            )
+            issue = "运力缺口"
+            judgment = "需求增长快于有效在线供给，且完单率同步下降。"
+            action = "提升目标区域与时段的有效在线供给，优先采用定向司机激励、热区引导与短时运力补充，避免全面加补贴。"
+        elif diagnosis == SupplyDiagnosis.EFFECTIVE_SUPPLY_GAP:
+            priority = "P1"
+            issue = "有效运力不足"
+            judgment = "总在线供给未明显不足，但有效在线率下降并拖累完单率。"
+            action = "优先检查司机有效在线、接单准备度与热点覆盖，先提升既有在线供给的有效性，再追加总在线规模。"
+        elif diagnosis == SupplyDiagnosis.EXCESS_SUPPLY:
+            priority = "P1"
+            issue = "运力偏富余"
+            judgment = "有效在线供给增长快于需求，单位有效运力产出下降。"
+            action = "收缩低效率区域或时段的增量供给，将运力转向需求更强的时空单元。"
+        elif diagnosis == SupplyDiagnosis.DRIVER_EFFICIENCY_DECLINE:
+            priority = "P1"
+            issue = "司机效率下降"
+            judgment = "司机供给增长后，单司机完单与单位有效在线产出同步下降。"
+            action = "检查司机结构、在线时段与热点匹配，减少低产出供给扩张，优先提升单司机有效产出。"
+        else:
+            priority = "P1"
+            issue = "低效运力"
+            judgment = "有效在线供给增长未转化为同等幅度的有效交易。"
+            action = "收缩低效率时段增量，将供给转向需求更强的区域与时段。"
         rows.append(
             {
                 "优先级": priority,
@@ -514,9 +565,11 @@ def _build_anomaly_pool(
                 "问题": issue,
                 "关键证据": (
                     f"需求 {format_relative_change(item['demand_orders_change'])}；"
-                    f"在线 {format_relative_change(item['online_hours_change'])}；"
+                    f"活跃司机 {format_relative_change(item['active_drivers_change'])}；"
+                    f"有效在线 {format_relative_change(item['effective_online_hours_change'])}；"
+                    f"有效在线率 {format_point_change(item['effective_online_rate_change_pp'])}；"
                     f"完单率 {format_point_change(item['completion_rate_change_pp'])}；"
-                    f"GMV/在线小时 {format_relative_change(item['gmv_per_online_hour_change'])}"
+                    f"GMV/有效在线小时 {format_relative_change(item['gmv_per_effective_online_hour_change'])}"
                 ),
                 "经营判断": judgment,
                 "建议动作": action,
@@ -581,9 +634,11 @@ def _sort_supply_diagnosis(frame: pd.DataFrame) -> pd.DataFrame:
     """Keep anomalies first while retaining the full region-by-time comparison table."""
     priority = {
         SupplyDiagnosis.SUPPLY_GAP.value: 0,
-        SupplyDiagnosis.EXCESS_SUPPLY.value: 1,
-        SupplyDiagnosis.EFFICIENCY_DECLINE.value: 2,
-        SupplyDiagnosis.STABLE.value: 3,
+        SupplyDiagnosis.EFFECTIVE_SUPPLY_GAP.value: 1,
+        SupplyDiagnosis.EXCESS_SUPPLY.value: 2,
+        SupplyDiagnosis.DRIVER_EFFICIENCY_DECLINE.value: 3,
+        SupplyDiagnosis.EFFICIENCY_DECLINE.value: 4,
+        SupplyDiagnosis.STABLE.value: 5,
     }
     result = frame.copy()
     result["_diagnosis_rank"] = result["diagnosis"].map(priority).fillna(9)
