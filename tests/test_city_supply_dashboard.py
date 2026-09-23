@@ -31,6 +31,7 @@ from ops_workbench.ui.city_supply_dashboard import (
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "src" / "ops_workbench" / "ui" / "pages" / "8_city_supply_ops.py"
 APP = ROOT / "src" / "ops_workbench" / "ui" / "app.py"
+CITY_APP = ROOT / "src" / "ops_workbench" / "ui" / "city_supply_app.py"
 
 
 @pytest.fixture(scope="module")
@@ -234,7 +235,15 @@ def test_streamlit_page_and_navigation_import_without_error() -> None:
     assert not app.exception
     sidebar = " ".join(str(item.value) for item in app.sidebar.markdown)
     assert "药师帮经营" in sidebar
-    assert "城市运力经营" in sidebar
+    assert "城市运力经营" not in sidebar
+
+    city_app = AppTest.from_file(CITY_APP).run(timeout=30)
+    assert not city_app.exception
+    city_visible = _visible_text(city_app)
+    assert "城市运力经营" in city_visible
+    assert "药师帮经营" not in " ".join(
+        str(item.value) for item in city_app.sidebar.markdown
+    )
 
 
 def test_streamlit_filters_surface_all_three_simulated_scenarios() -> None:
