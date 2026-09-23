@@ -303,8 +303,10 @@ def _format_signed_money(value: object) -> str:
     if pd.isna(value):
         return "不可用"
     amount = float(value)
-    sign = "+" if amount > 0 else ""
-    return f"{sign}{format_money(amount)}"
+    if amount == 0:
+        return format_money(0)
+    sign = "+" if amount > 0 else "-"
+    return f"{sign}{format_money(abs(amount))}"
 
 
 def _format_signed_orders(value: object) -> str:
