@@ -278,7 +278,7 @@ def _render_kpis(data: CitySupplyDashboardData) -> None:
         drivers = data.overview["active_drivers"]
         value = "不可用" if drivers.current is None else f"{drivers.current:,.0f}人"
         render_metric_card(
-            "活跃司机",
+            "司机供给人次",
             value,
             _metric_detail(data, "active_drivers"),
         )
@@ -364,7 +364,7 @@ def _render_city_comparison(data: CitySupplyDashboardData) -> None:
                 "区域": frame["zone"],
                 "GMV": frame["gmv_current"].map(format_money),
                 "完单率": frame["completion_rate_current"].map(format_percentage),
-                "活跃司机": frame["active_drivers_current"].map(
+                "司机供给人次": frame["active_drivers_current"].map(
                     lambda value: "不可用" if pd.isna(value) else f"{float(value):,.0f}人"
                 ),
                 "有效在线时长": frame["effective_online_hours_current"].map(format_hours),
@@ -389,7 +389,7 @@ def _render_city_comparison(data: CitySupplyDashboardData) -> None:
                 "活跃司机": frame["active_drivers_current"].map(
                     lambda value: "不可用" if pd.isna(value) else f"{float(value):,.0f}人"
                 ),
-                "活跃司机变化": frame["active_drivers_change"].map(format_relative_change),
+                "司机供给人次变化": frame["active_drivers_change"].map(format_relative_change),
                 "有效在线时长": frame["effective_online_hours_current"].map(format_hours),
                 "有效在线率": frame["effective_online_rate_current"].map(format_percentage),
                 "GMV/有效在线小时": frame["gmv_per_effective_online_hour_current"].map(efficiency),
@@ -419,10 +419,10 @@ def _render_trends(data: CitySupplyDashboardData) -> None:
             percentage=True,
             height=210,
         )
-    st.markdown("#### 司机供给：活跃司机与有效在线时长")
+    st.markdown("#### 司机供给：供给人次与有效在线时长")
     charts = st.columns(2)
     with charts[0]:
-        _render_line_chart(trend, x="date", y="active_drivers", y_title="活跃司机", height=210)
+        _render_line_chart(trend, x="date", y="active_drivers", y_title="司机供给人次", height=210)
     with charts[1]:
         _render_line_chart(
             trend,
@@ -464,7 +464,7 @@ def _render_supply_diagnosis(data: CitySupplyDashboardData) -> None:
             "区域": frame["zone"],
             "时段": frame["time_bucket"].map(TIME_BUCKET_LABELS),
             "需求订单变化": frame["demand_orders_change"].map(format_relative_change),
-            "活跃司机变化": frame["active_drivers_change"].map(format_relative_change),
+            "司机供给人次变化": frame["active_drivers_change"].map(format_relative_change),
             "有效在线变化": frame["effective_online_hours_change"].map(format_relative_change),
             "有效在线率": frame["effective_online_rate_current"].map(format_percentage),
             "有效在线率变化": frame["effective_online_rate_change_pp"].map(format_point_change),
@@ -509,9 +509,9 @@ def _render_efficiency_and_margin(data: CitySupplyDashboardData) -> None:
             change = format_point_change(row["变化"])
         else:
             if metric in {"gmv_per_active_driver"}:
-                unit = "元/司机"
+                unit = "元/供给人次"
             elif metric in {"orders_per_active_driver"}:
-                unit = "单/司机"
+                unit = "单/供给人次"
             elif metric == "gmv_per_effective_online_hour":
                 unit = "元/小时"
             else:
