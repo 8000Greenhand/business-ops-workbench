@@ -380,27 +380,48 @@ def _build_anomaly_pool(
         )
 
     for _, item in city_comparison.iterrows():
-        band = classify_gross_margin(
-            _optional_float(item["gross_margin_current"]), policy
-        )
-        if band not in {GrossMarginBand.AT_FLOOR, GrossMarginBand.NEAR_FLOOR}:
+        current_margin = _optional_float(item["gross_margin_current"])
+        margin_change_pp = _optional_float(item["gross_margin_change_pp"])
+        band = classify_gross_margin(current_margin, policy)
+        if band in {GrossMarginBand.AT_FLOOR, GrossMarginBand.NEAR_FLOOR}:
+            rows.append(
+                {
+                    "优先级": "P0" if band == GrossMarginBand.AT_FLOOR else "P1",
+                    "城市": str(item["city"]),
+                    "区域/时段": "全市",
+                    "问题": "毛利触线" if band == GrossMarginBand.AT_FLOOR else "毛利逼近红线",
+                    "关键证据": (
+                        f"补贴率 {format_point_change(item['subsidy_rate_change_pp'])}；"
+                        f"GMV {format_relative_change(item['gmv_change'])}；"
+                        f"完单率 {format_point_change(item['completion_rate_change_pp'])}；"
+                        f"毛利率 {format_percentage(item['gross_margin_current'])}"
+                    ),
+                    "经营判断": "当前增长伴随明显成本投入，继续加码存在毛利风险。",
+                    "建议动作": "停止全面加补贴，优先保留对完单率改善最有效的时段与区域。",
+                }
+            )
             continue
-        rows.append(
-            {
-                "优先级": "P0" if band == GrossMarginBand.AT_FLOOR else "P1",
-                "城市": str(item["city"]),
-                "区域/时段": "全市",
-                "问题": "毛利触线" if band == GrossMarginBand.AT_FLOOR else "毛利逼近红线",
-                "关键证据": (
-                    f"补贴率 {format_point_change(item['subsidy_rate_change_pp'])}；"
-                    f"GMV {format_relative_change(item['gmv_change'])}；"
-                    f"完单率 {format_point_change(item['completion_rate_change_pp'])}；"
-                    f"毛利率 {format_percentage(item['gross_margin_current'])}"
-                ),
-                "经营判断": "当前增长伴随明显成本投入，继续加码存在毛利风险。",
-                "建议动作": "停止全面加补贴，优先保留对完单率改善最有效的时段与区域。",
-            }
-        )
+        if (
+            band == GrossMarginBand.SAFE
+            and margin_change_pp is not None
+            and margin_change_pp <= policy.gross_margin_attention_drop_pp
+        ):
+            rows.append(
+                {
+                    "优先级": "P2",
+                    "城市": str(item["city"]),
+                    "区域/时段": "全市",
+                    "问题": "毛利缓冲收窄",
+                    "关键证据": (
+                        f"毛利率 {format_point_change(item['gross_margin_change_pp'])}；"
+                        f"当前毛利率 {format_percentage(item['gross_margin_current'])}；"
+                        f"补贴率 {format_point_change(item['subsidy_rate_change_pp'])}；"
+                        f"GMV {format_relative_change(item['gmv_change'])}"
+                    ),
+                    "经营判断": "当前毛利仍高于红线，但较上期显著收窄，需要确认增长是否依赖更高成本投入。",
+                    "建议动作": "优先拆解补贴与其他变动成本变化，避免规模增长持续侵蚀毛利缓冲。",
+                }
+            )
     if not rows:
         return pd.DataFrame(columns=ANOMALY_COLUMNS)
     result = pd.DataFrame(rows)
