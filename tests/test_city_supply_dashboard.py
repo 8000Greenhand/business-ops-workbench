@@ -135,7 +135,7 @@ def test_zone_filter_limits_dashboard_to_selected_zone(
     assert data.zone == "成都东站"
     assert set(data.zone_comparison["zone"]) == {"成都东站"}
     assert set(data.supply_diagnosis["zone"]) == {"成都东站"}
-    assert all(scope.startswith("成都东站") or scope == "全市" for scope in data.anomalies["区域/时段"])
+    assert all(scope.startswith("成都东站") for scope in data.anomalies["区域/时段"])
 
 
 def test_single_city_builds_zone_comparison_sorted_by_gmv(facts: pd.DataFrame) -> None:
