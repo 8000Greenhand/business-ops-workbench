@@ -123,7 +123,7 @@ def _render_bar_chart(
 
 def _render_margin_scatter(frame: pd.DataFrame) -> None:
     """Render the city efficiency-versus-margin view with a percentage y-axis."""
-    safe = finite_chart_rows(frame, ("GMV/在线小时", "毛利率", "GMV"))
+    safe = finite_chart_rows(frame, ("GMV/有效在线小时", "毛利率", "GMV"))
     if safe.empty:
         st.info("当前筛选周期暂无可用于绘图的数据。")
         return
@@ -133,9 +133,9 @@ def _render_margin_scatter(frame: pd.DataFrame) -> None:
             "mark": {"type": "circle", "opacity": 0.78},
             "encoding": {
                 "x": {
-                    "field": "GMV/在线小时",
+                    "field": "GMV/有效在线小时",
                     "type": "quantitative",
-                    "title": "GMV / 在线小时（元）",
+                    "title": "GMV / 有效在线小时（元）",
                 },
                 "y": {
                     "field": "毛利率",
@@ -148,9 +148,9 @@ def _render_margin_scatter(frame: pd.DataFrame) -> None:
                 "tooltip": [
                     {"field": "城市", "type": "nominal", "title": "城市"},
                     {
-                        "field": "GMV/在线小时",
+                        "field": "GMV/有效在线小时",
                         "type": "quantitative",
-                        "title": "GMV / 在线小时",
+                        "title": "GMV / 有效在线小时",
                         "format": ".1f",
                     },
                     {
@@ -199,7 +199,7 @@ def _render_filters(facts: pd.DataFrame) -> CitySupplyDashboardData | None:
     default_start, default_end = default_period(facts)
     minimum = pd.Timestamp(facts["date"].min()).date()
     maximum = pd.Timestamp(facts["date"].max()).date()
-    controls = st.columns([1.1, 1.1, 1, 1])
+    controls = st.columns([1.05, 1.05, 0.9, 1.05, 0.9])
     with controls[0]:
         current_start = st.date_input(
             "当前周期起始日",
@@ -216,24 +216,51 @@ def _render_filters(facts: pd.DataFrame) -> CitySupplyDashboardData | None:
         )
     with controls[2]:
         city_label = st.selectbox("城市", CITY_OPTIONS, index=0)
+
+    selected_city = None if city_label == "全部城市" else city_label
+    zone_options = ("全部区域",)
+    if selected_city is not None:
+        city_zones = tuple(
+            sorted(facts.loc[facts["city"].eq(selected_city), "zone"].dropna().unique())
+        )
+        zone_options = ("全部区域", *city_zones)
+
     with controls[3]:
+        zone_label = st.selectbox(
+            "区域",
+            zone_options,
+            index=0,
+            disabled=selected_city is None,
+            help="先选择单个城市后，可继续下钻到区域。",
+        )
+    with controls[4]:
         time_label = st.selectbox("时段", tuple(TIME_OPTIONS), index=0)
+
+    selected_zone = None if zone_label == "全部区域" else zone_label
     try:
         data = build_city_supply_dashboard(
             facts,
             current_start=current_start,
             current_end=current_end,
-            city=None if city_label == "全部城市" else city_label,
+            city=selected_city,
+            zone=selected_zone,
             time_bucket=TIME_OPTIONS[time_label],
         )
     except ValueError as error:
         st.error(str(error))
         return None
     periods = data.periods
+    scope = "全部城市"
+    if data.city is not None:
+        scope = data.city
+    if data.zone is not None:
+        scope += f" → {data.zone}"
+    if data.time_bucket is not None:
+        scope += f" → {TIME_BUCKET_LABELS[data.time_bucket]}"
     st.caption(
         f"当前周期：{periods.current_start} ～ {periods.current_end}　｜　"
         f"对比周期：{periods.baseline_start} ～ {periods.baseline_end}　｜　"
-        f"{periods.days} 天等长比较"
+        f"{periods.days} 天等长比较　｜　当前范围：{scope}"
     )
     return data
 
@@ -275,27 +302,60 @@ def _render_kpis(data: CitySupplyDashboardData) -> None:
         )
     cards = st.columns(3)
     with cards[0]:
+        drivers = data.overview["active_drivers"]
+        value = "不可用" if drivers.current is None else f"{drivers.current:,.0f}人"
         render_metric_card(
-            "在线时长",
-            format_hours(data.overview["online_hours"].current),
-            _metric_detail(data, "online_hours"),
+            "司机供给人次",
+            value,
+            _metric_detail(data, "active_drivers"),
         )
     with cards[1]:
-        completed = data.overview["completed_orders"]
-        value = "不可用" if completed.current is None else f"{completed.current:,.0f}单"
         render_metric_card(
-            "完成订单量",
-            value,
-            _metric_detail(data, "completed_orders"),
+            "有效在线时长",
+            format_hours(data.overview["effective_online_hours"].current),
+            (
+                f"较上期 {format_relative_change(data.overview['effective_online_hours'].relative_change)}"
+                f" · 有效在线率 {format_percentage(data.overview['effective_online_rate'].current)}"
+            ),
         )
     with cards[2]:
-        efficiency = data.overview["gmv_per_online_hour"]
+        efficiency = data.overview["gmv_per_effective_online_hour"]
         value = "不可用" if efficiency.current is None else f"¥{efficiency.current:,.1f}/小时"
         render_metric_card(
-            "GMV / 在线小时",
+            "GMV / 有效在线小时",
             value,
-            _metric_detail(data, "gmv_per_online_hour"),
+            _metric_detail(data, "gmv_per_effective_online_hour"),
         )
+    st.caption(
+        "司机供给人次为 date × city × zone × time_bucket 粒度的聚合供给人次；"
+        "当前模拟数据无 driver_id，不代表跨日去重后的唯一司机数。"
+    )
+
+
+def _render_operating_snapshot(data: CitySupplyDashboardData) -> None:
+    """Surface the most urgent operating issue before detailed diagnosis."""
+    render_section_header(
+        "当前周期经营状态",
+        "先识别最高优先级问题，再进入区域、时段和指标证据。",
+    )
+    if data.anomalies.empty:
+        st.success("当前筛选范围未发现 P0/P1/P2 经营异常或关注项。")
+        return
+
+    counts = data.anomalies["优先级"].value_counts()
+    top = data.anomalies.iloc[0]
+    with st.container(border=True):
+        columns = st.columns([2.8, 0.7, 0.7, 0.7])
+        with columns[0]:
+            st.markdown(
+                f"**首要问题：{top['优先级']} {top['问题']}｜"
+                f"{top['城市']} → {str(top['区域/时段']).replace(' · ', ' → ')}**"
+            )
+            st.caption(f"经营判断｜{top['经营判断']}")
+            st.markdown(f"**优先动作：** {top['建议动作']}")
+        for column, priority in zip(columns[1:], ("P0", "P1", "P2")):
+            with column:
+                st.metric(priority, int(counts.get(priority, 0)))
 
 
 def _format_signed_money(value: object) -> str:
@@ -361,8 +421,12 @@ def _render_city_comparison(data: CitySupplyDashboardData) -> None:
                 "区域": frame["zone"],
                 "GMV": frame["gmv_current"].map(format_money),
                 "完单率": frame["completion_rate_current"].map(format_percentage),
-                "在线时长": frame["online_hours_current"].map(format_hours),
-                "GMV/在线小时": frame["gmv_per_online_hour_current"].map(efficiency),
+                "司机供给人次": frame["active_drivers_current"].map(
+                    lambda value: "不可用" if pd.isna(value) else f"{float(value):,.0f}人"
+                ),
+                "有效在线时长": frame["effective_online_hours_current"].map(format_hours),
+                "有效在线率": frame["effective_online_rate_current"].map(format_percentage),
+                "GMV/有效在线小时": frame["gmv_per_effective_online_hour_current"].map(efficiency),
                 "毛利率": frame["gross_margin_current"].map(format_percentage),
             }
         )
@@ -379,9 +443,13 @@ def _render_city_comparison(data: CitySupplyDashboardData) -> None:
                 "GMV变化": frame["gmv_change"].map(format_relative_change),
                 "完单率": frame["completion_rate_current"].map(format_percentage),
                 "完单率变化": frame["completion_rate_change_pp"].map(format_point_change),
-                "在线时长": frame["online_hours_current"].map(format_hours),
-                "在线时长变化": frame["online_hours_change"].map(format_relative_change),
-                "GMV/在线小时": frame["gmv_per_online_hour_current"].map(efficiency),
+                "司机供给人次": frame["active_drivers_current"].map(
+                    lambda value: "不可用" if pd.isna(value) else f"{float(value):,.0f}人"
+                ),
+                "司机供给人次变化": frame["active_drivers_change"].map(format_relative_change),
+                "有效在线时长": frame["effective_online_hours_current"].map(format_hours),
+                "有效在线率": frame["effective_online_rate_current"].map(format_percentage),
+                "GMV/有效在线小时": frame["gmv_per_effective_online_hour_current"].map(efficiency),
                 "毛利率": frame["gross_margin_current"].map(format_percentage),
                 "毛利率变化": frame["gross_margin_change_pp"].map(format_point_change),
             }
@@ -408,16 +476,35 @@ def _render_trends(data: CitySupplyDashboardData) -> None:
             percentage=True,
             height=210,
         )
-    st.markdown("#### 运力投入：在线时长与 GMV / 在线小时")
+    st.markdown("#### 司机供给：供给人次与有效在线时长")
     charts = st.columns(2)
     with charts[0]:
-        _render_line_chart(trend, x="date", y="online_hours", y_title="在线时长", height=210)
+        _render_line_chart(trend, x="date", y="active_drivers", y_title="司机供给人次", height=210)
     with charts[1]:
         _render_line_chart(
             trend,
             x="date",
-            y="gmv_per_online_hour",
-            y_title="GMV / 在线小时",
+            y="effective_online_hours",
+            y_title="有效在线时长",
+            height=210,
+        )
+    st.markdown("#### 单位运力效率与毛利")
+    charts = st.columns(2)
+    with charts[0]:
+        _render_line_chart(
+            trend,
+            x="date",
+            y="gmv_per_effective_online_hour",
+            y_title="GMV / 有效在线小时",
+            height=210,
+        )
+    with charts[1]:
+        _render_line_chart(
+            trend,
+            x="date",
+            y="gross_margin",
+            y_title="毛利率",
+            percentage=True,
             height=210,
         )
 
@@ -434,10 +521,15 @@ def _render_supply_diagnosis(data: CitySupplyDashboardData) -> None:
             "区域": frame["zone"],
             "时段": frame["time_bucket"].map(TIME_BUCKET_LABELS),
             "需求订单变化": frame["demand_orders_change"].map(format_relative_change),
-            "在线时长变化": frame["online_hours_change"].map(format_relative_change),
+            "司机供给人次变化": frame["active_drivers_change"].map(format_relative_change),
+            "有效在线变化": frame["effective_online_hours_change"].map(format_relative_change),
+            "有效在线率": frame["effective_online_rate_current"].map(format_percentage),
+            "有效在线率变化": frame["effective_online_rate_change_pp"].map(format_point_change),
             "完单率": frame["completion_rate_current"].map(format_percentage),
             "完单率变化": frame["completion_rate_change_pp"].map(format_point_change),
-            "GMV变化": frame["gmv_change"].map(format_relative_change),
+            "GMV/有效在线小时变化": frame["gmv_per_effective_online_hour_change"].map(
+                format_relative_change
+            ),
             "诊断": frame["diagnosis"],
         }
     )
@@ -468,12 +560,19 @@ def _render_efficiency_and_margin(data: CitySupplyDashboardData) -> None:
     formatted_rows = []
     for _, row in table.iterrows():
         metric = row["metric"]
-        if metric in {"subsidy_rate", "gross_margin"}:
+        if metric in {"subsidy_rate", "gross_margin", "effective_online_rate"}:
             baseline = format_percentage(row["上期"])
             current = format_percentage(row["本期"])
             change = format_point_change(row["变化"])
         else:
-            unit = "元/小时" if metric == "gmv_per_online_hour" else "单/小时"
+            if metric in {"gmv_per_active_driver"}:
+                unit = "元/供给人次"
+            elif metric in {"orders_per_active_driver"}:
+                unit = "单/供给人次"
+            elif metric == "gmv_per_effective_online_hour":
+                unit = "元/小时"
+            else:
+                unit = "单/小时"
             baseline = "不可用" if pd.isna(row["上期"]) else f"{float(row['上期']):,.2f}{unit}"
             current = "不可用" if pd.isna(row["本期"]) else f"{float(row['本期']):,.2f}{unit}"
             change = format_relative_change(row["变化"])
@@ -482,17 +581,17 @@ def _render_efficiency_and_margin(data: CitySupplyDashboardData) -> None:
         )
     st.dataframe(pd.DataFrame(formatted_rows), hide_index=True, width="stretch")
     scatter = data.city_comparison[
-        ["city", "gmv_per_online_hour_current", "gross_margin_current", "gmv_current"]
+        ["city", "gmv_per_effective_online_hour_current", "gross_margin_current", "gmv_current"]
     ].rename(
         columns={
             "city": "城市",
-            "gmv_per_online_hour_current": "GMV/在线小时",
+            "gmv_per_effective_online_hour_current": "GMV/有效在线小时",
             "gross_margin_current": "毛利率",
             "gmv_current": "GMV",
         }
     )
     if len(scatter) > 1:
-        st.caption("城市：GMV / 在线小时 vs 毛利率")
+        st.caption("城市：GMV / 有效在线小时 vs 毛利率")
         _render_margin_scatter(scatter)
 
 
@@ -504,10 +603,10 @@ def _render_anomalies(data: CitySupplyDashboardData) -> None:
     if data.anomalies.empty:
         st.success("当前筛选周期未发现 P0/P1/P2 经营异常或关注项。")
         return
-    visible = data.anomalies.head(6)
+    visible = data.anomalies.head(3)
     for _, row in visible.iterrows():
         _render_anomaly_card(row)
-    remaining = data.anomalies.iloc[6:]
+    remaining = data.anomalies.iloc[3:]
     if not remaining.empty:
         with st.expander(f"查看其余 {len(remaining)} 条异常"):
             for _, row in remaining.iterrows():
@@ -530,12 +629,15 @@ def main() -> None:
     if data is None:
         return
     _render_kpis(data)
+    _render_operating_snapshot(data)
     _render_anomalies(data)
-    _render_result_decomposition(data)
     _render_city_comparison(data)
-    _render_trends(data)
     _render_supply_diagnosis(data)
-    _render_efficiency_and_margin(data)
+    _render_trends(data)
+    with st.expander("展开查看经营结果拆解", expanded=False):
+        _render_result_decomposition(data)
+    with st.expander("展开查看运力效率与毛利明细", expanded=False):
+        _render_efficiency_and_margin(data)
 
 
 main()

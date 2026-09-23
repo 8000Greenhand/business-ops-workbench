@@ -29,6 +29,9 @@ class CitySupplyPolicy:
     severe_completion_drop_pp: float
     efficiency_decline: float
     gmv_growth_lag: float
+    effective_online_rate_drop_pp: float
+    active_driver_growth: float
+    driver_efficiency_decline: float
 
 
 class GrossMarginFloorStatus(StrEnum):
@@ -52,7 +55,9 @@ class SupplyDiagnosis(StrEnum):
     """Configured multi-metric supply-demand diagnosis label."""
 
     SUPPLY_GAP = "运力缺口"
+    EFFECTIVE_SUPPLY_GAP = "有效运力不足"
     EXCESS_SUPPLY = "运力偏富余"
+    DRIVER_EFFICIENCY_DECLINE = "司机效率下降"
     EFFICIENCY_DECLINE = "效率下降"
     STABLE = "供需基本稳定"
 
@@ -84,6 +89,9 @@ def load_city_supply_policy(path: Path = DEFAULT_POLICY_PATH) -> CitySupplyPolic
         "severe_completion_drop_pp",
         "efficiency_decline",
         "gmv_growth_lag",
+        "effective_online_rate_drop_pp",
+        "active_driver_growth",
+        "driver_efficiency_decline",
     }
     missing = required.difference(diagnostics)
     if missing:
@@ -137,8 +145,13 @@ def diagnose_supply(
     gmv_change: float | None,
     efficiency_change: float | None,
     policy: CitySupplyPolicy,
+    effective_online_hours_change: float | None = None,
+    effective_online_rate_change_pp: float | None = None,
+    active_drivers_change: float | None = None,
+    orders_per_active_driver_change: float | None = None,
+    effective_efficiency_change: float | None = None,
 ) -> SupplyDiagnosis:
-    """Apply transparent simulated rules across demand, supply, fulfilment and output."""
+    """Apply transparent V2 rules across demand, driver supply, fulfilment and output."""
     values = (
         demand_change,
         online_hours_change,
@@ -148,9 +161,22 @@ def diagnose_supply(
     )
     if any(value is None or not math.isfinite(float(value)) for value in values):
         return SupplyDiagnosis.STABLE
+
+    effective_supply_change = (
+        float(effective_online_hours_change)
+        if effective_online_hours_change is not None
+        and math.isfinite(float(effective_online_hours_change))
+        else float(online_hours_change)
+    )
+    effective_efficiency = (
+        float(effective_efficiency_change)
+        if effective_efficiency_change is not None
+        and math.isfinite(float(effective_efficiency_change))
+        else float(efficiency_change)
+    )
     supply_lags_demand = (
-        online_hours_change <= 0
-        or online_hours_change <= demand_change - policy.supply_lag_gap
+        effective_supply_change <= 0
+        or effective_supply_change <= demand_change - policy.supply_lag_gap
     )
     if (
         demand_change >= policy.significant_demand_growth
@@ -158,16 +184,48 @@ def diagnose_supply(
         and completion_rate_change_pp <= policy.completion_drop_pp
     ):
         return SupplyDiagnosis.SUPPLY_GAP
+
+    effective_rate_drop = (
+        effective_online_rate_change_pp is not None
+        and math.isfinite(float(effective_online_rate_change_pp))
+        and effective_online_rate_change_pp <= policy.effective_online_rate_drop_pp
+    )
+    gross_online_keeps_up = (
+        online_hours_change > 0
+        and online_hours_change >= demand_change - policy.supply_lag_gap
+    )
     if (
-        online_hours_change >= policy.significant_online_growth
+        gross_online_keeps_up
+        and effective_rate_drop
+        and completion_rate_change_pp <= policy.completion_drop_pp
+    ):
+        return SupplyDiagnosis.EFFECTIVE_SUPPLY_GAP
+
+    if (
+        effective_supply_change >= policy.significant_online_growth
         and demand_change <= policy.flat_demand_upper
-        and efficiency_change <= policy.efficiency_decline
+        and effective_efficiency <= policy.efficiency_decline
     ):
         return SupplyDiagnosis.EXCESS_SUPPLY
+
+    driver_efficiency_decline = (
+        active_drivers_change is not None
+        and math.isfinite(float(active_drivers_change))
+        and active_drivers_change >= policy.active_driver_growth
+        and orders_per_active_driver_change is not None
+        and math.isfinite(float(orders_per_active_driver_change))
+        and orders_per_active_driver_change <= policy.driver_efficiency_decline
+    )
     if (
-        online_hours_change >= policy.significant_online_growth
-        and gmv_change <= online_hours_change - policy.gmv_growth_lag
-        and efficiency_change <= policy.efficiency_decline
+        driver_efficiency_decline
+        and effective_efficiency <= policy.efficiency_decline
+    ):
+        return SupplyDiagnosis.DRIVER_EFFICIENCY_DECLINE
+
+    if (
+        effective_supply_change >= policy.significant_online_growth
+        and gmv_change <= effective_supply_change - policy.gmv_growth_lag
+        and effective_efficiency <= policy.efficiency_decline
     ):
         return SupplyDiagnosis.EFFICIENCY_DECLINE
     return SupplyDiagnosis.STABLE

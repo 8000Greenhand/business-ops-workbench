@@ -21,6 +21,10 @@ ADDITIVE_METRIC_COLUMNS = (
     "completed_orders",
     "gmv",
     "online_hours",
+    "active_drivers",
+    "online_drivers",
+    "effective_online_drivers",
+    "effective_online_hours",
     "platform_revenue",
     "driver_subsidy",
     "other_variable_cost",
@@ -30,6 +34,14 @@ DERIVED_METRIC_COLUMNS = (
     "avg_order_value",
     "gmv_per_online_hour",
     "orders_per_online_hour",
+    "effective_online_rate",
+    "drivers_effective_rate",
+    "demand_per_effective_driver",
+    "orders_per_active_driver",
+    "gmv_per_active_driver",
+    "online_hours_per_active_driver",
+    "gmv_per_effective_online_hour",
+    "orders_per_effective_online_hour",
     "gross_profit",
     "gross_margin",
     "subsidy_rate",
@@ -65,6 +77,30 @@ def validate_city_supply_facts(frame: pd.DataFrame) -> None:
     )
     if invalid_completed.any():
         raise ValueError("completed_orders cannot exceed demand_orders")
+
+    invalid_online_drivers = (
+        frame["online_drivers"].notna()
+        & frame["active_drivers"].notna()
+        & frame["online_drivers"].gt(frame["active_drivers"])
+    )
+    if invalid_online_drivers.any():
+        raise ValueError("online_drivers cannot exceed active_drivers")
+
+    invalid_effective_drivers = (
+        frame["effective_online_drivers"].notna()
+        & frame["online_drivers"].notna()
+        & frame["effective_online_drivers"].gt(frame["online_drivers"])
+    )
+    if invalid_effective_drivers.any():
+        raise ValueError("effective_online_drivers cannot exceed online_drivers")
+
+    invalid_effective_hours = (
+        frame["effective_online_hours"].notna()
+        & frame["online_hours"].notna()
+        & frame["effective_online_hours"].gt(frame["online_hours"])
+    )
+    if invalid_effective_hours.any():
+        raise ValueError("effective_online_hours cannot exceed online_hours")
 
 
 def aggregate_city_supply_metrics(
@@ -116,6 +152,30 @@ def aggregate_city_supply_metrics(
     )
     aggregated["orders_per_online_hour"] = _safe_divide(
         aggregated["completed_orders"], aggregated["online_hours"]
+    )
+    aggregated["effective_online_rate"] = _safe_divide(
+        aggregated["effective_online_hours"], aggregated["online_hours"]
+    )
+    aggregated["drivers_effective_rate"] = _safe_divide(
+        aggregated["effective_online_drivers"], aggregated["online_drivers"]
+    )
+    aggregated["demand_per_effective_driver"] = _safe_divide(
+        aggregated["demand_orders"], aggregated["effective_online_drivers"]
+    )
+    aggregated["orders_per_active_driver"] = _safe_divide(
+        aggregated["completed_orders"], aggregated["active_drivers"]
+    )
+    aggregated["gmv_per_active_driver"] = _safe_divide(
+        aggregated["gmv"], aggregated["active_drivers"]
+    )
+    aggregated["online_hours_per_active_driver"] = _safe_divide(
+        aggregated["online_hours"], aggregated["active_drivers"]
+    )
+    aggregated["gmv_per_effective_online_hour"] = _safe_divide(
+        aggregated["gmv"], aggregated["effective_online_hours"]
+    )
+    aggregated["orders_per_effective_online_hour"] = _safe_divide(
+        aggregated["completed_orders"], aggregated["effective_online_hours"]
     )
     aggregated["gross_margin"] = _safe_divide(
         aggregated["gross_profit"], aggregated["platform_revenue"]
