@@ -17,7 +17,12 @@ from ops_workbench.diagnostics.city_supply import (
     load_city_supply_policy,
 )
 from ops_workbench.metrics.city_supply import aggregate_city_supply_metrics
-from ops_workbench.simulation.city_supply import SCENARIO_A, SCENARIO_B, SCENARIO_C
+from ops_workbench.simulation.city_supply import (
+    SCENARIO_A,
+    SCENARIO_B,
+    SCENARIO_C,
+    SCENARIO_D,
+)
 from ops_workbench.ui.city_supply_dashboard import (
     ANOMALY_COLUMNS,
     build_city_supply_dashboard,
@@ -333,6 +338,23 @@ def test_scenario_b_is_identified_as_low_efficiency_supply(facts: pd.DataFrame) 
     assert all("日间平峰" in scope for scope in data.anomalies["区域/时段"])
 
 
+def test_scenario_d_is_identified_as_effective_supply_gap(
+    facts: pd.DataFrame,
+) -> None:
+    data = build_city_supply_dashboard(
+        facts,
+        current_start=SCENARIO_D.start_date,
+        current_end=SCENARIO_D.end_date,
+        city="贵阳",
+    )
+    match = data.anomalies[
+        data.anomalies["区域/时段"].eq("观山湖 · 早高峰")
+    ].iloc[0]
+    assert match["优先级"] == "P1"
+    assert match["问题"] == "有效运力不足"
+    assert "有效在线率" in match["关键证据"]
+
+
 def test_scenario_c_is_identified_as_margin_risk(facts: pd.DataFrame) -> None:
     data = build_city_supply_dashboard(
         facts,
@@ -398,6 +420,7 @@ def test_streamlit_filters_surface_all_three_simulated_scenarios() -> None:
         (SCENARIO_A, "成都", "运力缺口"),
         (SCENARIO_B, "重庆", "运力偏富余"),
         (SCENARIO_C, "昆明", "毛利逼近红线"),
+        (SCENARIO_D, "贵阳", "有效运力不足"),
     )
     for scenario, city, expected_issue in checks:
         app.date_input[0].set_value(scenario.start_date)
