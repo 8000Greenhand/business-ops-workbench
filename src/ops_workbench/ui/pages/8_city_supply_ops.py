@@ -61,10 +61,20 @@ def _render_line_chart(
         {
             "mark": {"type": "line", "point": False},
             "encoding": {
-                "x": {"field": x, "type": "temporal", "title": None},
+                "x": {
+                    "field": x,
+                    "type": "temporal",
+                    "title": None,
+                    "axis": {"format": "%m-%d", "labelAngle": 0},
+                },
                 "y": {"field": y, "type": "quantitative", "axis": y_axis},
                 "tooltip": [
-                    {"field": x, "type": "temporal", "title": "日期"},
+                    {
+                        "field": x,
+                        "type": "temporal",
+                        "title": "日期",
+                        "format": "%Y-%m-%d",
+                    },
                     tooltip,
                 ],
             },
