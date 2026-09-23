@@ -158,7 +158,29 @@ def _build_fact(
         target_completion_rate = min(0.97, target_completion_rate + 0.05)
         subsidy_rate = 0.0958
 
-    capacity_orders = math.floor(online_hours * 4.0)
+    active_drivers = max(
+        1,
+        round(online_hours / 1.65 * rng.uniform(1.02, 1.08)),
+    )
+    online_drivers = max(
+        1,
+        min(active_drivers, round(active_drivers * rng.uniform(0.88, 0.96))),
+    )
+    effective_driver_rate = rng.uniform(0.88, 0.94)
+    effective_online_rate = rng.uniform(0.86, 0.94)
+    if _matches(SCENARIO_A, business_date, city, zone, time_bucket):
+        effective_driver_rate *= 0.90
+        effective_online_rate *= 0.88
+    effective_online_drivers = max(
+        1,
+        min(online_drivers, round(online_drivers * effective_driver_rate)),
+    )
+    effective_online_hours = max(
+        0.01,
+        min(online_hours, online_hours * effective_online_rate),
+    )
+
+    capacity_orders = math.floor(effective_online_hours * 4.35)
     completed_orders = min(
         demand_orders,
         capacity_orders,
@@ -182,6 +204,10 @@ def _build_fact(
         "completed_orders": completed_orders,
         "gmv": gmv,
         "online_hours": round(online_hours, 2),
+        "active_drivers": active_drivers,
+        "online_drivers": online_drivers,
+        "effective_online_drivers": effective_online_drivers,
+        "effective_online_hours": round(effective_online_hours, 2),
         "platform_revenue": platform_revenue,
         "driver_subsidy": driver_subsidy,
         "other_variable_cost": other_variable_cost,
