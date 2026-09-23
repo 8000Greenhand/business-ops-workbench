@@ -174,6 +174,8 @@ def _render_anomaly_card(row: pd.Series) -> None:
         st.markdown(
             f"**{row['优先级']} · {row['城市']} · {row['区域/时段']} · {row['问题']}**"
         )
+        scope = str(row["区域/时段"]).replace(" · ", " → ")
+        st.caption(f"定位路径｜{row['城市']} → {scope}")
         st.caption(f"关键证据｜{row['关键证据']}")
         st.markdown(f"**经营判断：** {row['经营判断']}")
         st.markdown(f"**建议动作：** {row['建议动作']}")
@@ -297,6 +299,52 @@ def _render_kpis(data: CitySupplyDashboardData) -> None:
         )
 
 
+def _format_signed_money(value: object) -> str:
+    if pd.isna(value):
+        return "不可用"
+    amount = float(value)
+    sign = "+" if amount > 0 else ""
+    return f"{sign}{format_money(amount)}"
+
+
+def _format_signed_orders(value: object) -> str:
+    if pd.isna(value):
+        return "不可用"
+    amount = float(value)
+    sign = "+" if amount > 0 else ""
+    return f"{sign}{amount:,.0f}单"
+
+
+def _render_result_decomposition(data: CitySupplyDashboardData) -> None:
+    render_section_header(
+        "经营结果拆解",
+        "先拆清结果由什么驱动，再进入城市、区域和时段定位。",
+    )
+    st.caption("GMV = 完成订单量 × 客单价　｜　完成订单量 = 需求订单量 × 完单率")
+    for message in data.diagnostic_summary:
+        st.markdown(f"- {message}")
+
+    bridge = data.result_decomposition.copy()
+    columns = st.columns(2)
+    for container, bridge_name in zip(columns, ("GMV", "完成订单量")):
+        with container:
+            st.markdown(f"#### {bridge_name}变化拆解")
+            part = bridge[bridge["bridge"].eq(bridge_name)].copy()
+            if part.empty:
+                st.info("当前周期暂无完整拆解数据。")
+                continue
+            formatter = _format_signed_money if bridge_name == "GMV" else _format_signed_orders
+            total_change = formatter(part["total_change"].iloc[0])
+            display = pd.DataFrame(
+                {
+                    "驱动项": part["driver"],
+                    "影响量": part["contribution"].map(formatter),
+                }
+            )
+            st.dataframe(display, hide_index=True, width="stretch")
+            st.caption(f"两项贡献回加后的总变化：{total_change}")
+
+
 def _render_city_comparison(data: CitySupplyDashboardData) -> None:
     render_section_header(
         "城市经营对比",
@@ -374,31 +422,21 @@ def _render_supply_diagnosis(data: CitySupplyDashboardData) -> None:
             "诊断": frame["diagnosis"],
         }
     )
-    abnormal = display[display["诊断"].ne("供需基本稳定")].copy()
-    if abnormal.empty:
-        st.success("当前筛选周期未识别到明显的时空供需异常。")
-    else:
-        st.dataframe(
-            abnormal,
-            hide_index=True,
-            width="stretch",
-            height=min(320, 36 + len(abnormal) * 35),
-            column_config={
-                "区域": st.column_config.TextColumn(width="medium"),
-                "诊断": st.column_config.TextColumn(width="medium"),
-            },
-        )
-    with st.expander(f"查看全部 {len(display)} 条区域 × 时段明细"):
-        st.dataframe(
-            display,
-            hide_index=True,
-            width="stretch",
-            height=min(420, 36 + len(display) * 35),
-            column_config={
-                "区域": st.column_config.TextColumn(width="medium"),
-                "诊断": st.column_config.TextColumn(width="medium"),
-            },
-        )
+    abnormal_count = int(display["诊断"].ne("供需基本稳定").sum())
+    st.caption(
+        f"异常/关注项优先置顶：{abnormal_count} 条；"
+        f"其余 {len(display) - abnormal_count} 条作为正常对照保留。"
+    )
+    st.dataframe(
+        display,
+        hide_index=True,
+        width="stretch",
+        height=min(620, 36 + len(display) * 35),
+        column_config={
+            "区域": st.column_config.TextColumn(width="medium"),
+            "诊断": st.column_config.TextColumn(width="medium"),
+        },
+    )
     st.caption("诊断阈值为模拟经营规则，集中配置在 config/city_supply_ops.yaml。")
 
 
@@ -445,7 +483,7 @@ def _render_anomalies(data: CitySupplyDashboardData) -> None:
         "将问题、证据、经营判断和建议动作放在同一条决策链上。",
     )
     if data.anomalies.empty:
-        st.success("当前筛选周期未发现 P0/P1 经营异常。")
+        st.success("当前筛选周期未发现 P0/P1/P2 经营异常或关注项。")
         return
     visible = data.anomalies.head(6)
     for _, row in visible.iterrows():
@@ -473,6 +511,7 @@ def main() -> None:
     if data is None:
         return
     _render_kpis(data)
+    _render_result_decomposition(data)
     _render_anomalies(data)
     _render_city_comparison(data)
     _render_trends(data)
