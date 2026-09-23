@@ -65,7 +65,7 @@ V2 继续保持单页主工作台，不拆成大量导航页。
 - GMV
 - 完单率
 - 毛利率
-- 活跃司机数
+- 司机供给人次
 - 有效在线时长
 - GMV / 有效在线小时
 
@@ -105,10 +105,12 @@ V2 继续保持单页主工作台，不拆成大量导航页。
 
 ### F. 司机经营
 新增司机供给经营区：
-- 活跃司机数
-- 单司机在线时长
-- 单司机完单
-- 单司机 GMV
+- 司机供给人次
+- 在线司机人次
+- 有效在线司机人次
+- 每供给人次在线时长
+- 每供给人次完单
+- 每供给人次 GMV
 - 完单 / 有效在线小时
 - GMV / 有效在线小时
 - 有效在线率
@@ -149,10 +151,12 @@ V2 暂不引入 driver_id 级事实表。司机指标为同粒度下的聚合模
 ### 5.3 新增原子指标
 
 第一阶段新增：
-- active_drivers：周期内该粒度有实际经营活动的司机数
-- online_drivers：该粒度产生在线行为的司机数
-- effective_online_drivers：满足有效在线条件的司机数
+- active_drivers：该 date × city × zone × time_bucket 粒度的司机供给人次
+- online_drivers：该粒度产生在线行为的司机人次
+- effective_online_drivers：满足有效在线条件的司机人次
 - effective_online_hours：可用于承接订单的有效在线时长
+
+> 重要口径：V2 第一阶段没有 driver_id，因此以上三个字段在跨日或跨时段聚合后代表“司机人次”，不能解释为唯一司机数。唯一活跃司机、留存和召回必须等 driver_id 级数据后再做。
 
 约束：
 - effective_online_drivers <= online_drivers <= active_drivers
@@ -165,9 +169,9 @@ V2 暂不引入 driver_id 级事实表。司机指标为同粒度下的聚合模
 - effective_online_rate = effective_online_hours / online_hours
 - drivers_effective_rate = effective_online_drivers / online_drivers
 - demand_per_effective_driver = demand_orders / effective_online_drivers
-- orders_per_active_driver = completed_orders / active_drivers
-- gmv_per_active_driver = gmv / active_drivers
-- online_hours_per_active_driver = online_hours / active_drivers
+- orders_per_active_driver = completed_orders / active_drivers（每供给人次完单）
+- gmv_per_active_driver = gmv / active_drivers（每供给人次 GMV）
+- online_hours_per_active_driver = online_hours / active_drivers（每供给人次在线时长）
 - gmv_per_effective_online_hour = gmv / effective_online_hours
 - orders_per_effective_online_hour = completed_orders / effective_online_hours
 
