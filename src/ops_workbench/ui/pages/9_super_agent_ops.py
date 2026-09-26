@@ -77,9 +77,10 @@ def _decision(data) -> None:
     case_choice = st.selectbox("代表案例快速查看", case_options)
     choice = st.selectbox("查看经纪人详情", frame["agent_name"].tolist()) if case_choice == "自由选择" else frame.loc[frame["case"] == case_choice[-1], "agent_name"].iloc[0]
     row = frame.loc[frame["agent_name"] == choice].iloc[0]
-    st.markdown(f"**事实｜{choice}：近28天成交 {int(row['deal_count'])} 单，成交额 {fmt_money(row['deal_gtv'])}；近56天带看 {int(row['showings_56d'])} 次。**")
+    st.markdown(f"**事实｜{choice}：近28天成交 {int(row['deal_count'])} 单，成交额 {fmt_money(row['deal_gtv'])}；近56天带看 {int(row['showings_56d'])} 次，观测 {int(row['observed_days_56d'])} 天。**")
     gap = {"deal_count": "成交量", "deal_gtv": "成交额"}.get(row["top_gap_dimension"], "不可用")
-    st.write(f"同群：{row['peer_scope']}（样本 {int(row['peer_sample_size'])}）；潜力百分位 {fmt_pct(row['potential_percentile'])}；头部差距 {gap}。")
+    confidence_label = "高" if row["confidence"] >= 0.8 else "中" if row["confidence"] >= 0.65 else "低"
+    st.write(f"同群：{row['peer_scope']}（样本 {int(row['peer_sample_size'])}）；潜力百分位 {fmt_pct(row['potential_percentile'])}；置信度 {confidence_label}；头部差距 {gap}。")
     ratios = pd.DataFrame({"环节": ["商机→承接", "承接→跟进", "跟进→带看", "带看→成交（56天）"],
         "本人": [fmt_pct(row[x]) for x in ("acceptance_rate", "followup_rate", "showing_rate", "closing_56d")],
         "同群百分位": [fmt_pct(row[x]) for x in ("acceptance_rate_pct", "followup_rate_pct", "showing_rate_pct", "closing_rate_pct")]})
@@ -89,8 +90,13 @@ def _decision(data) -> None:
     else:
         st.write("潜力拆解：" + "｜".join(f"{label} {row[key]:.1f}" if pd.notna(row[key]) else f"{label} 不可用" for label, key in [("成长", "growth_score"), ("转化", "conversion_score"), ("稳定", "stability_score"), ("可经营空间", "headroom_score")]))
     st.write(f"诊断｜{row['diagnostic_status']}；主瓶颈 {BOTTLENECKS.get(row['primary_bottleneck'], '无')}；次瓶颈 {BOTTLENECKS.get(row['secondary_bottleneck'], '无')}。")
+    if row["top_at_risk"]:
+        st.warning("头部风险：当前周期未达到模拟头部标准，正处于保留阶段。")
+    if row["capacity_deferred"]:
+        st.info("容量递延：达到理论 P0 门槛，但本周期城市经理 P0 容量已满，列为 P1。")
     st.write("历史阶段：" + " → ".join(data.history.loc[data.history["agent_id"] == row["agent_id"], "stage"].tolist()))
-    st.write(f"最近触达：{row['last_action_at'] if pd.notna(row['last_action_at']) else '无'}；近7/14/30天：{row['touches_7d']}/{row['touches_14d']}/{row['touches_30d']}次")
+    last_touch = str(row["last_action_at"].date()) if pd.notna(row["last_action_at"]) else "无"
+    st.write(f"最近触达：{last_touch}；近7/14/30天：{row['touches_7d']}/{row['touches_14d']}/{row['touches_30d']}次")
     actions = data.recommendations.loc[data.recommendations["agent_id"] == row["agent_id"]]
     st.subheader("推荐动作 Top3")
     st.dataframe(actions.loc[actions["rank_no"].between(1, 3), ["rank_no", "action_name", "reason_text", "recommendation_score", "valid_until"]].rename(columns={"rank_no": "排序", "action_name": "动作", "reason_text": "理由", "recommendation_score": "推荐分", "valid_until": "有效期"}), hide_index=True, width="stretch")
@@ -165,7 +171,8 @@ def _review(data) -> None:
                                    ("执行人数", k["executed_count"]), ("执行率", fmt_pct(k["action_execution_rate"])),
                                    ("执行后改善率", fmt_pct(k["action_improvement_rate"]))]):
         col.metric(name, value)
-    st.write(f"晋级率 {fmt_pct(k['upgrade_rate'])}｜平均晋级周期 {k['mean_upgrade_days'] or '不可用'} 天｜动作成本 {fmt_money(k['action_cost'])}｜单个新增头部成本 {fmt_money(k['cost_per_new_head'])}")
+    mean_days = "不可用" if k["mean_upgrade_days"] is None else f"{k['mean_upgrade_days']:.1f} 天"
+    st.write(f"接受率 {fmt_pct(k['action_accept_rate'])}｜晋级率 {fmt_pct(k['upgrade_rate'])}｜平均晋级周期 {mean_days}｜动作成本 {fmt_money(k['action_cost'])}｜单个新增头部成本 {fmt_money(k['cost_per_new_head'])}")
     st.dataframe(pd.DataFrame([{"观察窗口": f"{days}天", "可观察执行数": result["eligible"], "改善数": result["improved"], "改善率": fmt_pct(result["improvement_rate"])} for days, result in k["outcome_windows"].items()]), hide_index=True, width="stretch")
     agents = data.agents.merge(data.campaign_exposure, on="agent_id", validate="one_to_one")
     dates = sorted(data.history["snapshot_date"].unique())

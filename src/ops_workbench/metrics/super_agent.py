@@ -165,6 +165,7 @@ def snapshot_metrics(master: pd.DataFrame, facts: pd.DataFrame, end: date, polic
     frame["potential_percentile"] = _peer_percentile(frame, "potential_score", policy)
     observed_facts = facts.loc[(facts["date"] <= end) & (facts["date"] > end - timedelta(days=policy["windows"]["closing_days"]))]
     observed_rows = observed_facts.groupby("agent_id").size().reindex(ids, fill_value=0)
+    frame["observed_days_56d"] = observed_rows.to_numpy()
     completeness = pd.Series((observed_rows / policy["windows"]["closing_days"]).clip(0, 1).to_numpy(), index=frame.index)
     value_completeness = observed_facts.assign(completeness=observed_facts[list(COUNTS)].notna().mean(axis=1)).groupby("agent_id")["completeness"].mean().reindex(ids, fill_value=0)
     frame["confidence"] = (0.35 * completeness + 0.05 * value_completeness.to_numpy()

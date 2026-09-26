@@ -15,6 +15,7 @@ def test_pressure_guardrails_and_representative_bottlenecks():
     assert cases.loc["C", "primary_bottleneck"] == "resource" and cases.loc["C", "primary_action_code"] == "A02"
     assert cases.loc["D", "primary_bottleneck"] == "closing" and cases.loc["D", "primary_action_code"] == "A06"
     assert cases.loc["E", "potential_score"] >= 65 and cases.loc["E", "confidence"] < 0.65
+    assert cases.loc["E", "observed_days_56d"] < 20
     assert cases.loc["F", "top_at_risk"] and cases.loc["F", "priority"] == "P0"
     g = cases.loc["G"]
     assert g["touches_7d"] >= 2

@@ -40,7 +40,7 @@ def simulate_agents(config: dict, *, seed: int | None = None) -> tuple[pd.DataFr
         elif case == "C":
             base = 0.72
         elif case == "E":
-            base = 5.5
+            base = 2.8
         elif case == "F":
             base = 2.55
         elif case == "H":
@@ -68,7 +68,7 @@ def simulate_agents(config: dict, *, seed: int | None = None) -> tuple[pd.DataFr
             followups = sum(rng.random() < follow_rate for _ in range(accepted))
             showing_rate = 0.29 if profile == "带看偏弱" else 0.87 if profile in {"商机不足但高转化", "低样本高转化"} else 0.65
             showings = sum(rng.random() < showing_rate for _ in range(followups))
-            closing_rate = (0.045 if profile == "成交转化偏弱" else 0.12 if case == "E" else 0.47 if profile in {"商机不足但高转化", "低样本高转化", "稳定头部", "头部下滑", "准头部"} else 0.28)
+            closing_rate = (0.045 if profile == "成交转化偏弱" else 0.28 if case == "E" else 0.47 if profile in {"商机不足但高转化", "低样本高转化", "稳定头部", "头部下滑", "准头部"} else 0.28)
             deals = sum(rng.random() < closing_rate for _ in range(showings))
             facts.append({"date": start + timedelta(days=d), "agent_id": agent_id,
                           "opportunity_received": opportunities, "opportunity_accepted": accepted,

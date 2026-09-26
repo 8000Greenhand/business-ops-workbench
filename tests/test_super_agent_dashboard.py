@@ -18,6 +18,8 @@ def test_dashboard_and_chinese_formats():
     assert fmt_pct(None) == "不可用"
     assert data.kpis["head_count"] == data.kpis["new_head_count"] + data.kpis["stable_head_count"]
     assert data.agents.loc[data.agents["stage"].isin(["新晋头部", "稳定头部"]), "potential_score"].isna().all()
+    deferred = data.agents.loc[data.agents["capacity_deferred"]].head(1)
+    assert decision_table(deferred)["容量状态"].iloc[0] == "容量递延"
 
 
 def test_five_views_smoke():
