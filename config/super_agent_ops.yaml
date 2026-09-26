@@ -1,0 +1,74 @@
+# 所有数值仅为模拟压力测试口径，不代表任何平台内部规则。
+scope_label: 模拟经营口径
+seed: 20260927
+simulation:
+  agents: 1200
+  days: 112
+snapshot:
+  frequency_days: 7
+  history_periods: 8
+windows:
+  current_days: 28
+  trend_days: 14
+  closing_days: 56
+  action_days: [7, 14, 28]
+peer:
+  min_sample_size: 30
+active:
+  min_effective_days: 5
+  min_opportunities: 3
+  extreme_silent_days: 0
+top:
+  operator: AND
+  metrics:
+    deal_count: 8
+    deal_gtv: 640000
+potential:
+  weights: {growth: 0.35, conversion: 0.30, stability: 0.20, headroom: 0.15}
+  growth_weights: {deal_count: 0.40, showing_count: 0.30, valid_followup_count: 0.20, effective_work_flag: 0.10}
+  conversion_weights: {acceptance_rate: 0.25, followup_rate: 0.25, showing_rate: 0.25, closing_rate: 0.25}
+  min_denominators: {acceptance_rate: 10, followup_rate: 7, showing_rate: 7, closing_rate: 12}
+  quality_gate: 55
+  percentile_gate: 0.90
+  confidence_gate: 0.65
+  fast_percentile_gate: 0.95
+  fast_confidence_gate: 0.80
+confidence:
+  opportunity_target: 30
+  showing_target: 15
+lifecycle:
+  near_top_progress: 0.72
+  near_top_fast_track: 0.90
+  high_potential_confirm_periods: 2
+  near_top_confirm_periods: 2
+  downgrade_confirm_periods: 2
+  stable_top_confirm_periods: 3
+  top_grace_periods: 1
+bottleneck:
+  persistent_current_percentile: 0.25
+  persistent_previous_percentile: 0.35
+  extreme_percentile: 0.12
+  downstream_good_percentile: 0.60
+  min_opportunities: 10
+  min_accepted: 7
+  min_followups: 7
+  min_showings_56d: 12
+priority:
+  weights: {business_value: 0.35, actionability: 0.25, urgency: 0.25, confidence: 0.15}
+  p0_threshold: 68
+  p1_threshold: 42
+  p0_capacity_per_manager: 5
+  fatigue_penalty_per_touch: 4
+recommendation:
+  top_n: 3
+  weights: {fit: 0.45, leverage: 0.30, urgency: 0.25}
+  cost_penalty: {low: 0, medium: 4, high: 10}
+  fatigue_penalty_per_touch: 3
+  resource_conversion_gate: 55
+  resource_confidence_gate: 0.70
+  incentive_progress_gate: 0.90
+campaign:
+  active: true
+  budget: 20000
+  capacity: 20
+  unit_cost: 1000
