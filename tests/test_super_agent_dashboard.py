@@ -32,3 +32,33 @@ def test_five_views_smoke():
         assert not app.exception, name
         labels = [item.value for item in app.subheader] + [item.label for item in app.selectbox]
         assert marker in labels, name
+
+
+def test_p0_task_session_sync_without_historical_effects():
+    app = AppTest.from_file(str(PAGE), default_timeout=60).run()
+    app.radio[0].set_value("策略实验与复盘").run()
+    historical = [metric.value for metric in app.metric if metric.label == "执行人数"][0]
+    app.radio[0].set_value("城市经理工作台").run()
+    assert app.radio[1].value == "P0 本周重点"
+    assert not app.exception
+    next(button for button in app.button if button.label == "接受").click().run()
+    assert not app.exception
+    app.radio[0].set_value("经营决策中心").run()
+    assert "已接受" in app.dataframe[0].value["任务状态"].tolist()
+    app.radio[0].set_value("城市经理工作台").run()
+    next(button for button in app.button if button.label == "执行").click().run()
+    assert not app.exception
+    assert any(metric.label == "已执行" and metric.value == "1" for metric in app.metric)
+    app.radio[1].set_value("已处理").run()
+    assert any("状态：已执行" in item.value for item in app.caption)
+    app.radio[1].set_value("P0 本周重点").run()
+    skip_name = next(box for box in app.selectbox if box.label == "选择任务").value
+    next(box for box in app.selectbox if box.label == "跳过原因").set_value("动作不适用").run()
+    next(button for button in app.button if button.label == "跳过").click().run()
+    app.radio[1].set_value("已处理").run()
+    next(box for box in app.selectbox if box.label == "选择任务").set_value(skip_name).run()
+    assert any("跳过原因：动作不适用" in item.value for item in app.caption)
+    app.radio[0].set_value("策略实验与复盘").run()
+    assert [metric.value for metric in app.metric if metric.label == "执行人数"][0] == historical
+    assert any(metric.label == "已执行" and metric.value == "1" for metric in app.metric)
+    assert any(metric.label == "跳过" and metric.value == "1" for metric in app.metric)

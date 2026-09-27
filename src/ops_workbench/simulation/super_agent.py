@@ -79,14 +79,31 @@ def simulate_agents(config: dict, *, seed: int | None = None) -> tuple[pd.DataFr
 
 
 def simulated_action_log(master: pd.DataFrame, as_of: date) -> pd.DataFrame:
-    """Create deterministic historical touches for fatigue and demo cases."""
-    rows = []
+    """Return linked historical recommendation outcomes for fatigue and review."""
+    return simulated_action_cohort(master, as_of)[1]
+
+
+def simulated_action_cohort(master: pd.DataFrame, as_of: date) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Create one traceable, fixed-seed historical recommendation/action cohort."""
+    recommended: list[dict] = []
+    events: list[dict] = []
     for i, agent in master.iterrows():
-        if agent["case"] == "G" or (i % 29 == 0 and not agent["case"]):
-            for age in (2, 5, 10):
-                rows.append({"agent_id": agent["agent_id"], "action_code": "A01", "action_at": as_of - timedelta(days=age), "status": "已执行", "cost": 20})
-        elif i % 17 == 0:
-            rows.append({"agent_id": agent["agent_id"], "action_code": "A04", "action_at": as_of - timedelta(days=35), "status": "已执行" if i % 3 else "已接受", "cost": 80 if i % 3 else 0})
-        elif i % 23 == 0:
-            rows.append({"agent_id": agent["agent_id"], "action_code": "A05", "action_at": as_of - timedelta(days=22), "status": "已执行" if i % 3 else "已接受", "cost": 120 if i % 3 else 0})
-    return pd.DataFrame(rows, columns=["agent_id", "action_code", "action_at", "status", "cost"])
+        ages = (2, 5, 10) if agent["case"] == "G" or (i % 29 == 0 and not agent["case"]) else (35,) if i % 4 == 0 else (22,) if i % 11 == 0 else ()
+        for age in ages:
+            code = "A01" if age in (2, 5, 10) else ("A07" if agent["profile"] == "准头部" else "A06" if agent["profile"] == "成交转化偏弱" else "A04" if i % 2 else "A05")
+            recommended_at = as_of - timedelta(days=age + 2)
+            recommendation_id = f"H-{recommended_at:%Y%m%d}-{agent['agent_id']}-{code}"
+            status = ("过期" if i % 19 == 0 and age == 35 else
+                      "跳过" if i % 13 == 0 and age == 35 else
+                      "已推荐" if i % 7 == 0 and age == 35 else
+                      "已接受" if i % 5 == 0 and age == 35 else "已执行")
+            accepted_at = recommended_at + timedelta(days=1) if status in {"已接受", "已执行"} else None
+            executed_at = recommended_at + timedelta(days=2) if status == "已执行" else None
+            cost = (1000 if code == "A07" else 120 if code == "A06" else 80 if code in {"A04", "A05"} else 20) if executed_at else 0
+            rec = {"recommendation_id": recommendation_id, "agent_id": agent["agent_id"], "action_code": code,
+                   "recommended_at": recommended_at, "recommendation_rank": 1, "recommendation_score": float(60 + i % 30)}
+            recommended.append(rec)
+            events.append({**rec, "accepted_at": accepted_at, "executed_at": executed_at,
+                           "action_at": executed_at, "status": status,
+                           "skip_reason": "本周期暂不适用" if status == "跳过" else "", "cost": cost})
+    return pd.DataFrame(recommended), pd.DataFrame(events)

@@ -180,6 +180,8 @@ python -m pip install -e ".[dev]"
 streamlit run src/ops_workbench/ui/app.py
 ```
 
+独立模拟作品入口：`streamlit run src/ops_workbench/ui/super_agent_app.py`（超级经纪人运营系统）。城市、人物、指标阈值均为 Demo 模拟口径，详情见 `docs/SUPER_AGENT_OPS_SPEC.md`。
+
 运行测试：
 
 ```powershell

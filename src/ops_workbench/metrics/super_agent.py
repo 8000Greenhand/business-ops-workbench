@@ -22,7 +22,95 @@ RATES = {"acceptance_rate": ("opportunity_accepted", "opportunity_received"),
 def load_policy() -> dict:
     """Read versioned, explicitly simulated operating parameters."""
     path = Path(__file__).resolve().parents[3] / "config" / "super_agent_ops.yaml"
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        policy = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError("super_agent_ops.yaml 语法非法") from exc
+    validate_policy(policy)
+    return policy
+
+
+def validate_policy(policy: dict) -> None:
+    """Fail fast on invalid simulated operating parameters."""
+    def number(path: str, *, minimum: float = 0, maximum: float | None = None, strict: bool = False) -> None:
+        value = policy
+        for key in path.split("."):
+            if not isinstance(value, dict) or key not in value:
+                raise ValueError(f"{path} 缺失")
+            value = value[key]
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or (value <= minimum if strict else value < minimum) or (maximum is not None and value > maximum):
+            raise ValueError(f"{path} 非法：{value}")
+
+    if not isinstance(policy, dict) or policy.get("scope_label") != "模拟经营口径":
+        raise ValueError("scope_label 必须为模拟经营口径")
+    if not isinstance(policy.get("top"), dict) or policy["top"].get("operator") not in {"AND", "OR"}:
+        raise ValueError("top.operator 必须为 AND 或 OR")
+    expected_weights = {
+        "potential.weights": {"growth", "conversion", "stability", "headroom"},
+        "potential.growth_weights": {"deal_count", "showing_count", "valid_followup_count", "effective_work_flag"},
+        "potential.conversion_weights": set(RATES),
+        "confidence.weights": {"observed_days", "value_completeness", "opportunity_sample", "showing_sample", "funnel_completeness", "peer_sample"},
+        "priority.weights": {"business_value", "actionability", "urgency", "confidence"},
+        "recommendation.weights": {"fit", "leverage", "urgency"},
+    }
+    for group, expected_keys in expected_weights.items():
+        value = policy
+        for key in group.split("."):
+            value = value.get(key) if isinstance(value, dict) else None
+        if not isinstance(value, dict) or set(value) != expected_keys or any(not isinstance(x, (int, float)) or isinstance(x, bool) or not math.isfinite(x) or x < 0 for x in value.values()) or not math.isclose(sum(value.values()), 1.0, abs_tol=1e-8):
+            raise ValueError(f"{group} 权重必须非负且总和为1")
+    metrics = policy["top"].get("metrics")
+    if not isinstance(metrics, dict) or not metrics or set(metrics) - set(COUNTS):
+        raise ValueError("top.metrics 必须为非空的已知原子指标映射")
+    for metric in metrics:
+        number(f"top.metrics.{metric}", strict=True)
+    for key in ("snapshot.frequency_days", "snapshot.history_periods", "windows.current_days", "windows.trend_days", "windows.closing_days", "peer.min_sample_size", "confidence.opportunity_target", "confidence.showing_target", "recommendation.top_n"):
+        number(key, strict=True)
+    if not policy.get("windows", {}).get("action_days") or any(not isinstance(x, int) or x <= 0 for x in policy["windows"]["action_days"]):
+        raise ValueError("windows.action_days 必须为正整数列表")
+    for key in ("potential.percentile_gate", "potential.confidence_gate", "potential.fast_percentile_gate", "potential.fast_confidence_gate", "bottleneck.persistent_current_percentile", "bottleneck.persistent_previous_percentile", "bottleneck.extreme_percentile", "bottleneck.downstream_good_percentile", "recommendation.resource_confidence_gate", "recommendation.incentive_progress_gate", "recommendation.high_potential_touch_progress_gate", "lifecycle.near_top_progress", "lifecycle.near_top_fast_track", "outcome.min_observed_ratio"):
+        number(key, maximum=1)
+    for key in ("priority.p0_capacity_per_manager", "campaign.capacity", "campaign.budget", "campaign.unit_cost", "active.extreme_silent_days", "priority.fatigue_penalty_per_touch", "recommendation.fatigue_penalty_per_touch"):
+        number(key)
+    number("campaign.unit_cost", strict=True)
+    for key in ("lifecycle.high_potential_confirm_periods", "lifecycle.near_top_confirm_periods", "lifecycle.downgrade_confirm_periods", "lifecycle.stable_top_confirm_periods"):
+        number(key, strict=True)
+    number("lifecycle.top_grace_periods")
+    if policy["priority"]["p0_threshold"] <= policy["priority"]["p1_threshold"]:
+        raise ValueError("priority.p0_threshold 必须大于 priority.p1_threshold")
+    if policy["lifecycle"]["near_top_fast_track"] < policy["lifecycle"]["near_top_progress"]:
+        raise ValueError("lifecycle.near_top_fast_track 不得低于 near_top_progress")
+    for section, keys in {"priority.business_value": ("upgrade_scale", "head_risk"), "priority.actionability": ("no_bottleneck", "diagnosed", "low_confidence"), "priority.urgency": ("progress_scale", "head_risk"), "recommendation.fit_scores": ("low_confidence_observation", "head_risk", "new_head_retention", "bottleneck_match", "near_top_incentive", "near_top_touch", "observation_default", "generic"), "recommendation.leverage": ("top_progress_scale",), "recommendation.urgency": ("head_risk", "progress_scale", "ceiling")}.items():
+        for key in keys:
+            number(f"{section}.{key}")
+    for key in ("priority.confidence_scale", "priority.p0_threshold", "priority.p1_threshold", "recommendation.resource_conversion_gate"):
+        number(key)
+
+
+def validate_actions(actions: list[dict]) -> None:
+    """Check action catalog identity, stages, bottlenecks and capacities."""
+    if not isinstance(actions, list) or not actions:
+        raise ValueError("actions 必须为非空列表")
+    seen: set[str] = set()
+    for action in actions:
+        if not isinstance(action, dict):
+            raise ValueError("actions 项必须为配置映射")
+        code = action.get("action_code")
+        if not isinstance(code, str) or not code or code in seen:
+            raise ValueError(f"action_code 重复或非法：{code}")
+        seen.add(code)
+        if not isinstance(action.get("eligible_stages"), list) or not action["eligible_stages"] or set(action["eligible_stages"]) - set(STAGES):
+            raise ValueError(f"{code}.eligible_stages 非法")
+        if action.get("target_bottleneck") not in {"any", "resource", "acceptance", "followup", "showing", "closing"}:
+            raise ValueError(f"{code}.target_bottleneck 非法")
+        if action.get("cost_level") not in {"low", "medium", "high"}:
+            raise ValueError(f"{code}.cost_level 非法")
+        if action.get("expected_metric") not in COUNTS:
+            raise ValueError(f"{code}.expected_metric 非法")
+        for key in ("cooldown_days", "valid_days", "max_frequency_30d", "capacity_per_cycle"):
+            value = action.get(key)
+            if not isinstance(value, int) or value < 0:
+                raise ValueError(f"{code}.{key} 非法")
 
 
 def safe_ratio(numerator: float | None, denominator: float | None) -> float | None:
@@ -34,12 +122,18 @@ def safe_ratio(numerator: float | None, denominator: float | None) -> float | No
 
 def top_completion(row: pd.Series | dict, policy: dict) -> tuple[float, str, bool]:
     """Compute the limiting AND path or best OR path from configured metrics."""
-    parts = {name: float(row[name]) / threshold for name, threshold in policy["top"]["metrics"].items()}
+    parts = {name: float(row[name]) / threshold for name, threshold in policy["top"]["metrics"].items()
+             if pd.notna(row[name])}
     operator = policy["top"]["operator"].upper()
     if operator == "AND":
+        if len(parts) != len(policy["top"]["metrics"]):
+            missing = next(name for name in policy["top"]["metrics"] if name not in parts)
+            return float("nan"), missing, False
         gap = min(parts, key=parts.get)
         return parts[gap], gap, all(value >= 1 for value in parts.values())
     if operator == "OR":
+        if not parts:
+            return float("nan"), next(iter(policy["top"]["metrics"])), False
         gap = max(parts, key=parts.get)
         return parts[gap], gap, any(value >= 1 for value in parts.values())
     raise ValueError("top.operator must be AND or OR")
@@ -168,11 +262,16 @@ def snapshot_metrics(master: pd.DataFrame, facts: pd.DataFrame, end: date, polic
     frame["observed_days_56d"] = observed_rows.to_numpy()
     completeness = pd.Series((observed_rows / policy["windows"]["closing_days"]).clip(0, 1).to_numpy(), index=frame.index)
     value_completeness = observed_facts.assign(completeness=observed_facts[list(COUNTS)].notna().mean(axis=1)).groupby("agent_id")["completeness"].mean().reindex(ids, fill_value=0)
-    frame["confidence"] = (0.35 * completeness + 0.05 * value_completeness.to_numpy()
-                           + 0.05 * (frame["opportunity_received"] / policy["confidence"]["opportunity_target"]).fillna(0).clip(0, 1)
-                           + 0.10 * (closing["showing_count"].to_numpy() / policy["confidence"]["showing_target"]).clip(0, 1)
-                           + 0.20 * frame["computable_funnel_ratio"]
-                           + 0.15 * (frame["peer_sample_size"] / policy["peer"]["min_sample_size"]).clip(0, 1)).clip(0, 1)
+    confidence_weights = policy["confidence"]["weights"]
+    evidence = {
+        "observed_days": completeness,
+        "value_completeness": pd.Series(value_completeness.to_numpy(), index=frame.index),
+        "opportunity_sample": (frame["opportunity_received"] / policy["confidence"]["opportunity_target"]).clip(0, 1),
+        "showing_sample": pd.Series((closing["showing_count"].to_numpy() / policy["confidence"]["showing_target"]).clip(0, 1), index=frame.index),
+        "funnel_completeness": frame["computable_funnel_ratio"],
+        "peer_sample": (frame["peer_sample_size"] / policy["peer"]["min_sample_size"]).clip(0, 1),
+    }
+    frame["confidence"] = sum(confidence_weights[key] * evidence[key].fillna(0) for key in confidence_weights).clip(0, 1)
     frame["high_potential_candidate"] = (active & ~frame["top_met"]
         & (frame["top_progress"] < policy["lifecycle"]["near_top_progress"])
         & (frame["potential_score"] >= policy["potential"]["quality_gate"])
@@ -195,16 +294,22 @@ def transition_stage(previous: str, row: pd.Series | dict, streaks: dict, policy
     if met:
         stage = "稳定头部" if streaks["top"] >= cfg["stable_top_confirm_periods"] else "新晋头部"
         return stage, False
+    if row["effective_work_flag"] <= policy["active"]["extreme_silent_days"]:
+        return "无效/沉默", False
     if previous in HEAD and streaks["miss"] <= cfg["top_grace_periods"]:
         return previous, True
     if previous in HEAD and streaks["miss"] < cfg["downgrade_confirm_periods"]:
         return previous, True
-    if row["effective_work_flag"] <= policy["active"]["extreme_silent_days"]:
-        return "无效/沉默", False
     near = row["candidate_stage"] == "准头部"
     high = bool(row["high_potential_candidate"])
     streaks["near"] = streaks.get("near", 0) + 1 if near else 0
     streaks["high"] = streaks.get("high", 0) + 1 if high else 0
+    if previous in HEAD:
+        if near:
+            return "准头部", False
+        if high:
+            return "高潜", False
+        return ("无效/沉默" if row["candidate_stage"] == "无效/沉默" else "活跃"), False
     supported = near if previous == "准头部" else high if previous == "高潜" else True
     streaks["ordinary_miss"] = 0 if supported else streaks.get("ordinary_miss", 0) + 1
     if near and (streaks["near"] >= cfg["near_top_confirm_periods"] or row["top_progress"] >= cfg["near_top_fast_track"]):

@@ -45,6 +45,8 @@ def test_top_and_or_paths(demo):
     alternate = {**policy, "top": {**policy["top"], "operator": "OR"}}
     progress, gap, met = top_completion(row, alternate)
     assert progress > 1 and gap == "deal_count" and met
+    unavailable, missing, met = top_completion({"deal_count": 9, "deal_gtv": None}, policy)
+    assert pd.isna(unavailable) and missing == "deal_gtv" and not met
 
 
 def test_transition_confirmation_and_grace(demo):

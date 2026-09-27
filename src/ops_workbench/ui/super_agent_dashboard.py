@@ -10,7 +10,7 @@ import pandas as pd
 from ops_workbench.diagnostics.super_agent import (action_kpis, attach_touch_history,
     diagnose, load_actions, prioritize, recommend)
 from ops_workbench.metrics.super_agent import build_snapshots, load_policy, transition_kpis
-from ops_workbench.simulation.super_agent import simulate_agents, simulated_action_log
+from ops_workbench.simulation.super_agent import simulate_agents, simulated_action_cohort
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,7 @@ class Dashboard:
     facts: pd.DataFrame
     history: pd.DataFrame
     recommendations: pd.DataFrame
+    historical_recommendations: pd.DataFrame
     action_log: pd.DataFrame
     campaign_exposure: pd.DataFrame
     kpis: dict
@@ -35,11 +36,11 @@ def build_dashboard() -> Dashboard:
     agents, history = build_snapshots(master, facts, policy)
     agents = diagnose(agents, policy)
     as_of = facts["date"].max()
-    log = simulated_action_log(master, as_of)
+    historical_recommendations, log = simulated_action_cohort(master, as_of)
     agents = attach_touch_history(agents, log, as_of)
     agents = prioritize(agents, policy)
     recommendations = recommend(agents, policy, load_actions(), as_of)
-    primary = recommendations.loc[recommendations["rank_no"] == 1, ["agent_id", "action_code", "action_name", "reason_text", "valid_until"]]
+    primary = recommendations.loc[recommendations["rank_no"] == 1, ["agent_id", "recommendation_id", "action_code", "action_name", "reason_text", "valid_until"]]
     agents = agents.merge(primary.rename(columns={"action_code": "primary_action_code", "action_name": "primary_action", "reason_text": "recommendation_reason"}), on="agent_id", how="left", validate="one_to_one")
     # Case letters identify observed examples in the fixed-seed output, not rule overrides.
     agents["case"] = ""
@@ -64,8 +65,8 @@ def build_dashboard() -> Dashboard:
     ids = agents["agent_id"].tolist()
     random.Random(policy["seed"]).shuffle(ids)
     exposure = pd.DataFrame({"agent_id": ids, "实验分组": ["实验组" if i % 2 == 0 else "对照组" for i in range(len(ids))]})
-    return Dashboard(agents, facts, history, recommendations, log, exposure, kpis,
-                     action_kpis(recommendations, log, history, facts, policy), policy)
+    return Dashboard(agents, facts, history, recommendations, historical_recommendations, log, exposure, kpis,
+                     action_kpis(historical_recommendations, log, history, facts, policy), policy)
 
 
 def fmt_pct(value: float | None) -> str:
@@ -80,7 +81,45 @@ def fmt_money(value: float | None) -> str:
     return f"¥{value / 10000:,.1f}万" if abs(value) >= 10000 else f"¥{value:,.0f}"
 
 
-def decision_table(agents: pd.DataFrame) -> pd.DataFrame:
+def task_statuses(agents: pd.DataFrame, events: list[dict], as_of) -> dict[str, str]:
+    """Resolve shared current-session task states by recommendation identity."""
+    latest = {event["recommendation_id"]: event for event in events}
+    statuses = {}
+    for row in agents.itertuples():
+        event = latest.get(row.recommendation_id) if isinstance(row.recommendation_id, str) else None
+        if event:
+            status = event["status"]
+        elif row.valid_until < as_of:
+            status = "已过期"
+        elif pd.notna(row.cooldown_until) and row.cooldown_until.date() > as_of and row.last_action_code == row.primary_action_code:
+            status = "冷却中"
+        else:
+            status = "待处理"
+        statuses[row.agent_id] = status
+    return statuses
+
+
+def record_session_event(events: list[dict], row: pd.Series | dict, status: str, event_at, skip_reason: str = "") -> None:
+    """Append one session event after checking task transition and skip reason."""
+    if status not in {"已接受", "已执行", "跳过"}:
+        raise ValueError("status 非法")
+    if status == "跳过" and not skip_reason:
+        raise ValueError("跳过必须填写原因")
+    previous = next((event["status"] for event in reversed(events) if event["recommendation_id"] == row["recommendation_id"]), "待处理")
+    if (status == "已接受" and previous != "待处理") or (status == "已执行" and previous != "已接受") or (status == "跳过" and previous not in {"待处理", "已接受"}):
+        raise ValueError("任务状态迁移非法")
+    events.append({"agent_id": row["agent_id"], "recommendation_id": row["recommendation_id"],
+                   "action_code": row["primary_action_code"], "status": status,
+                   "event_at": event_at, "skip_reason": skip_reason})
+
+
+def session_progress(events: list[dict]) -> dict[str, int]:
+    """Count session accept/execute/skip events without historical effects."""
+    return {status: len({event["recommendation_id"] for event in events if event["status"] == status})
+            for status in ("已接受", "已执行", "跳过")}
+
+
+def decision_table(agents: pd.DataFrame, statuses: dict[str, str] | None = None) -> pd.DataFrame:
     """Return a readable Chinese action table without raw decimal ratios."""
     return pd.DataFrame({
         "经纪人": agents["agent_name"], "验收案例": agents["case"].map(lambda x: f"案例{x}" if x else ""),
@@ -97,5 +136,5 @@ def decision_table(agents: pd.DataFrame) -> pd.DataFrame:
         "推荐原因": agents["recommendation_reason"].fillna("样本不足，继续观察"),
         "有效期": agents["valid_until"].astype(str),
         "最近触达": agents["last_action_at"].dt.strftime("%Y-%m-%d").fillna("无"),
-        "任务状态": "待处理",
+        "任务状态": agents["agent_id"].map(statuses or {}).fillna("待处理"),
     })

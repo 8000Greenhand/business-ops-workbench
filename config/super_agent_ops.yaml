@@ -34,6 +34,7 @@ potential:
   fast_percentile_gate: 0.95
   fast_confidence_gate: 0.80
 confidence:
+  weights: {observed_days: 0.50, value_completeness: 0.10, opportunity_sample: 0.07, showing_sample: 0.08, funnel_completeness: 0.15, peer_sample: 0.10}
   opportunity_target: 30
   showing_target: 15
 lifecycle:
@@ -55,6 +56,10 @@ bottleneck:
   min_showings_56d: 12
 priority:
   weights: {business_value: 0.35, actionability: 0.25, urgency: 0.25, confidence: 0.15}
+  business_value: {upgrade_scale: 100, head_risk: 100}
+  actionability: {no_bottleneck: 25, diagnosed: 85, low_confidence: 10}
+  urgency: {progress_scale: 80, head_risk: 100}
+  confidence_scale: 100
   p0_threshold: 68
   p1_threshold: 42
   p0_capacity_per_manager: 5
@@ -62,6 +67,10 @@ priority:
 recommendation:
   top_n: 3
   weights: {fit: 0.45, leverage: 0.30, urgency: 0.25}
+  fit_scores: {low_confidence_observation: 100, head_risk: 95, new_head_retention: 90, bottleneck_match: 85, near_top_incentive: 80, near_top_touch: 68, observation_default: 45, generic: 35}
+  leverage: {top_progress_scale: 70}
+  urgency: {head_risk: 100, progress_scale: 100, ceiling: 100}
+  high_potential_touch_progress_gate: 0.40
   cost_penalty: {low: 0, medium: 4, high: 10}
   fatigue_penalty_per_touch: 3
   resource_conversion_gate: 55
@@ -72,3 +81,5 @@ campaign:
   budget: 20000
   capacity: 20
   unit_cost: 1000
+outcome:
+  min_observed_ratio: 0.80
