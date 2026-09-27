@@ -28,11 +28,19 @@ def test_campaign_center_manager_choice_review_same_session():
     assert not app.exception
     assert _box(app, "选择活动查看规则与候选").value.startswith("C02")
     assert any("活动规则与资源" == item.value for item in app.subheader)
+    assert _metric(app, "当前有效活动") == "3"
+    assert _metric(app, "报名中") == "2"
+    assert _metric(app, "进行中") == "1"
+    assert int(_metric(app, "系统推荐候选人次")) > len(_enrollments(app))
     assert _enrollments(app)["报名状态"].eq("待选择").all()
     app.radio[0].set_value("策略与活动复盘").run()
     assert not app.exception
     historical = {name: _metric(app, name) for name in ("成交单量", "晋级头部人数", "实际成本")}
     assert _metric(app, "本次会话报名") == "0"
+    process = next(frame.value for frame in app.dataframe if "环节" in frame.value.columns)
+    assert process["环节"].tolist() == ["系统推荐", "城市报名", "确认参与", "活动完成"]
+    assert any("成交结果" in item.value for item in app.markdown)
+    assert any("晋级结果" in item.value for item in app.markdown)
 
     app.radio[0].set_value("城市经理工作台").run()
     assert not app.exception

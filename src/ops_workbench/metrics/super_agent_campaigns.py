@@ -195,6 +195,31 @@ def current_enrollments(candidates: pd.DataFrame, events: list[dict]) -> pd.Data
     return frame
 
 
+def matched_campaigns_for_agent(candidates: pd.DataFrame, campaigns: pd.DataFrame,
+                                agent_id: str) -> pd.DataFrame:
+    """List every current eligible campaign for one agent, ordered for reading only."""
+    available = campaigns.loc[campaigns["status"].isin(["报名中", "进行中"]),
+                              ["campaign_id", "campaign_name", "campaign_type", "status"]]
+    matches = candidates.loc[candidates["eligible_flag"] & candidates["agent_id"].eq(agent_id)]
+    result = matches.merge(available, on="campaign_id", how="inner", validate="many_to_one")
+    return result.sort_values(["activity_fit_percentile", "campaign_id"], ascending=[False, True])[
+        ["campaign_id", "campaign_name", "campaign_type", "status", "activity_fit_score",
+         "activity_fit_percentile", "recommendation_rank", "recommendation_reason"]]
+
+
+def campaign_overview(campaigns: pd.DataFrame, enrollments: pd.DataFrame) -> dict[str, int | float]:
+    """Aggregate current campaign status, budget and cross-campaign person-times."""
+    current = campaigns.loc[campaigns["status"].isin(["报名中", "进行中"])]
+    active_ids = set(current["campaign_id"])
+    choices = enrollments.loc[enrollments["campaign_id"].isin(active_ids)]
+    enrolled = int(choices["enrollment_status"].eq("已报名").sum())
+    capacity = int(current["capacity"].sum())
+    return {"current_campaigns": len(current), "accepting": int(current["status"].eq("报名中").sum()),
+            "running": int(current["status"].eq("进行中").sum()), "budget": float(current["budget"].sum()),
+            "capacity": capacity, "recommended_person_times": len(choices),
+            "enrolled_person_times": enrolled, "remaining_capacity": capacity - enrolled}
+
+
 def record_enrollment(events: list[dict], candidate: pd.Series | dict, campaign: dict,
                       manager_id: str, status: str, event_at: pd.Timestamp,
                       decline_reason: str = "", enrollments: pd.DataFrame | None = None) -> None:
@@ -291,7 +316,7 @@ def campaign_review(candidates: pd.DataFrame, enrollments: pd.DataFrame,
         done = part.loc[part["completed"]]
         observable = done.loc[done["observation_status"] == "可观察"]
         deals = observable.loc[observable["deal_count"] > 0]
-        promoted = deals.loc[deals["promoted_to_head"]]
+        promoted = observable.loc[observable["promoted_to_head"]]
         cost = float(part["actual_cost"].sum())
         rows.append({"campaign_id": code, "campaign_name": campaign["campaign_name"], "eligible": rec,
                      "recommended": rec, "enrolled": len(enr), "participated": len(part), "completed": len(done),

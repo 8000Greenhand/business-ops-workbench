@@ -9,7 +9,8 @@ from ops_workbench.metrics.super_agent import HEAD
 from ops_workbench.diagnostics.super_agent import BOTTLENECKS, load_actions
 from ops_workbench.ui.super_agent_dashboard import (build_dashboard, decision_table, fmt_money, fmt_pct,
     record_session_event, session_progress, task_statuses)
-from ops_workbench.metrics.super_agent_campaigns import current_enrollments
+from ops_workbench.metrics.super_agent_campaigns import (campaign_overview, current_enrollments,
+    matched_campaigns_for_agent)
 from ops_workbench.ui.super_agent_campaign_views import (campaign_center, campaign_review_view,
     manager_campaigns)
 from ops_workbench.ui.components.common import configure_page
@@ -59,7 +60,8 @@ def _overview(data) -> None:
     st.dataframe(load, hide_index=True, width="stretch")
     st.subheader("本月活动")
     current = current_enrollments(data.campaign_candidates, _campaign_events())
-    st.write(f"进行中活动 {int(data.campaigns['status'].eq('进行中').sum())} 场｜系统推荐候选 {len(current)} 人次｜城市已报名 {int(current['enrollment_status'].eq('已报名').sum())} 人次。活动口径为模拟数据。")
+    activity = campaign_overview(data.campaigns, current)
+    st.write(f"当前有效活动 {activity['current_campaigns']} 场｜系统推荐候选 {activity['recommended_person_times']} 人次｜城市已报名 {activity['enrolled_person_times']} 人次。活动口径为模拟数据。")
 
 
 def _funnel(data) -> None:
@@ -143,10 +145,16 @@ def _decision(data) -> None:
     st.subheader("推荐动作 Top3")
     st.dataframe(actions.loc[actions["rank_no"].between(1, 3), ["rank_no", "action_name", "reason_text", "recommendation_score", "valid_until"]].rename(columns={"rank_no": "排序", "action_name": "动作", "reason_text": "理由", "recommendation_score": "推荐分", "valid_until": "有效期"}), hide_index=True, width="stretch")
     st.subheader("当前可承接活动")
-    if row["activity_recommendation"]:
-        st.write(f"{row['activity_recommendation']}｜活动匹配分 {row['activity_fit_score']:.1f}。{row['activity_reason']}")
-    else:
+    matched = matched_campaigns_for_agent(data.campaign_candidates, data.campaigns, row["agent_id"])
+    if matched.empty:
         st.write("当前无匹配活动。普通首选动作仍按原经营建议执行。")
+    else:
+        st.caption("活动匹配分只描述与当前这场活动的匹配程度；活动内匹配百分位只表示在该活动候选池中的位置，不代表不同活动之间存在统一优先级。不同活动的原始匹配分不直接比较。")
+        for activity in matched.itertuples():
+            with st.container(border=True):
+                st.markdown(f"**{activity.campaign_id}｜{activity.campaign_name}**　{activity.campaign_type} · {activity.status}")
+                st.write(f"活动匹配分 {activity.activity_fit_score:.1f}｜活动内匹配百分位 {fmt_pct(activity.activity_fit_percentile)}")
+                st.caption("推荐原因：" + activity.recommendation_reason)
     last_touch = str(row["last_action_at"].date()) if pd.notna(row["last_action_at"]) else "无"
     st.write(f"最近触达：{last_touch}；近7/14/30天：{row['touches_7d']}/{row['touches_14d']}/{row['touches_30d']}次")
     st.write("历史阶段：" + " → ".join(data.history.loc[data.history["agent_id"] == row["agent_id"], "stage"].tolist()))

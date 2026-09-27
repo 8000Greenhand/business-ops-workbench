@@ -78,15 +78,6 @@ def build_dashboard() -> Dashboard:
     campaign_config = load_campaigns()
     campaign_list = campaign_config["campaigns"]
     current_candidates = generate_candidates(agents, campaign_list, as_of)
-    best_activity = (current_candidates.loc[current_candidates["eligible_flag"]]
-                     .sort_values(["activity_fit_score", "campaign_id"], ascending=[False, True])
-                     .drop_duplicates("agent_id"))
-    names = {campaign["campaign_id"]: campaign["campaign_name"] for campaign in campaign_list}
-    activity_columns = best_activity[["agent_id", "campaign_id", "activity_fit_score", "recommendation_reason"]].rename(
-        columns={"campaign_id": "activity_campaign_id", "recommendation_reason": "activity_reason"})
-    agents = agents.merge(activity_columns, on="agent_id", how="left", validate="one_to_one")
-    agents["activity_recommendation"] = agents["activity_campaign_id"].map(names).map(
-        lambda name: f"建议报名「{name}」" if pd.notna(name) else "")
     historical_at = as_of - timedelta(days=42)
     historical_agents, _ = build_snapshots(master, facts.loc[facts["date"] <= historical_at], policy)
     historical_agents = diagnose(historical_agents, policy)

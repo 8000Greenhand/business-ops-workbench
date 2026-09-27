@@ -9,8 +9,9 @@ import pandas as pd
 import pytest
 
 from ops_workbench.metrics.super_agent_campaigns import (activity_fit, campaign_review,
-    current_enrollments, eligible, generate_candidates, load_campaigns, record_enrollment,
-    simulate_historical_campaigns, validate_campaigns)
+    campaign_overview, current_enrollments, eligible, generate_candidates, load_campaigns,
+    matched_campaigns_for_agent, record_enrollment, simulate_historical_campaigns,
+    validate_campaigns)
 from ops_workbench.ui.super_agent_dashboard import build_dashboard
 
 
@@ -65,6 +66,60 @@ def test_candidate_gates_fit_and_stable_rank(demo):
         assert demo.agents.loc[demo.agents["priority"] == priority, "agent_id"].isin(ids).any()
     assert (~demo.agents.loc[demo.agents["priority"] == "P0", "agent_id"].isin(ids)).any()
     assert set(chosen["priority"]) >= {"P0", "P1", "P2"}
+
+
+def test_multiple_campaign_matches_are_preserved_without_cross_campaign_winner(demo):
+    current = demo.campaign_candidates.loc[demo.campaign_candidates["eligible_flag"]]
+    overlap = current.groupby("agent_id").size().loc[lambda counts: counts >= 2]
+    if overlap.empty:
+        first = current.loc[current["campaign_id"] == "C01"].iloc[0].copy()
+        second = first.copy()
+        second["campaign_id"] = "C03"
+        first["activity_fit_score"], first["activity_fit_percentile"] = 82.0, 0.80
+        second["activity_fit_score"], second["activity_fit_percentile"] = 78.0, 0.95
+        sample = pd.DataFrame([first, second])
+    else:
+        sample = current.loc[current["agent_id"] == overlap.index[0]].copy()
+    original = demo.agents[["stage", "potential_score", "priority_score", "priority"]].copy(deep=True)
+    matched = matched_campaigns_for_agent(sample, demo.campaigns, sample.iloc[0]["agent_id"])
+    assert len(matched) >= 2
+    assert set(matched["campaign_id"]) == set(sample["campaign_id"])
+    assert matched["activity_fit_percentile"].tolist() == sorted(matched["activity_fit_percentile"], reverse=True)
+    assert "activity_fit_score" not in demo.agents.columns
+    assert "activity_recommendation" not in demo.agents.columns
+    if overlap.empty:
+        assert matched["campaign_id"].tolist() == ["C03", "C01"]
+        assert matched["activity_fit_score"].tolist() == [78.0, 82.0]
+    pd.testing.assert_frame_equal(original, demo.agents[["stage", "potential_score", "priority_score", "priority"]])
+
+
+def test_current_status_budget_and_cross_campaign_person_times(demo):
+    current = current_enrollments(demo.campaign_candidates, [])
+    summary = campaign_overview(demo.campaigns, current)
+    statuses = demo.campaigns["status"]
+    active = demo.campaigns.loc[statuses.isin(["报名中", "进行中"])]
+    assert summary["current_campaigns"] == len(active) == 3
+    assert summary["accepting"] == statuses.eq("报名中").sum() == 2
+    assert summary["running"] == statuses.eq("进行中").sum() == 1
+    assert summary["budget"] == active["budget"].sum()
+    assert summary["recommended_person_times"] == len(current) == int(demo.campaign_candidates["eligible_flag"].sum())
+    assert summary["enrolled_person_times"] == 0
+    synthetic_campaigns = pd.DataFrame([
+        {"campaign_id": "A", "status": "报名中", "budget": 100, "capacity": 2},
+        {"campaign_id": "B", "status": "进行中", "budget": 200, "capacity": 2},
+        {"campaign_id": "C", "status": "筹备中", "budget": 300, "capacity": 2},
+        {"campaign_id": "D", "status": "已结束", "budget": 400, "capacity": 2},
+    ])
+    choices = pd.DataFrame([
+        {"campaign_id": "A", "agent_id": "same", "enrollment_status": "已报名"},
+        {"campaign_id": "B", "agent_id": "same", "enrollment_status": "已报名"},
+        {"campaign_id": "C", "agent_id": "other", "enrollment_status": "待选择"},
+    ])
+    separate = campaign_overview(synthetic_campaigns, choices)
+    assert separate["current_campaigns"] == 2
+    assert separate["budget"] == 300
+    assert separate["recommended_person_times"] == 2
+    assert separate["enrolled_person_times"] == 2  # One person, two campaign enrollments.
 
 
 def test_eligibility_stage_confidence_progress_and_closing_sample(demo):
@@ -142,7 +197,6 @@ def test_historical_campaign_cohort_and_factual_outcomes(demo):
     assert (review["enrolled"] >= review["participated"]).all()
     assert (review["participated"] >= review["completed"]).all()
     assert (review["completed"] >= review["deal_agents"]).all()
-    assert (review["deal_agents"] >= review["promoted"]).all()
     assert review["deal_count"].gt(0).all()
     assert review.loc[review["campaign_id"] == "C02", "promoted"].iloc[0] > 0
     assert pd.isna(review.loc[review["promoted"] == 0, "cost_per_new_head"]).all()
@@ -179,3 +233,27 @@ def test_historical_simulation_deterministic_and_missing_not_zero(demo):
     assert observed["observation_status"].eq("样本不足").all()
     assert observed["deal_count"].isna().all()
     assert observed["deal_gtv"].isna().all()
+
+
+def test_campaign_deal_and_promotion_are_parallel_outcomes():
+    candidates = pd.DataFrame([
+        {"campaign_id": "C02", "agent_id": agent_id, "eligible_flag": True}
+        for agent_id in ("deal-only", "promotion-only")])
+    enrollments = pd.DataFrame([
+        {"campaign_id": "C02", "agent_id": agent_id, "enrollment_status": "已报名"}
+        for agent_id in ("deal-only", "promotion-only")])
+    outcomes = pd.DataFrame([
+        {"campaign_id": "C02", "agent_id": "deal-only", "participated": True, "completed": True,
+         "observation_status": "可观察", "deal_count": 1, "deal_gtv": 1000,
+         "stage_before": "准头部", "promoted_to_head": False, "actual_cost": 100},
+        {"campaign_id": "C02", "agent_id": "promotion-only", "participated": True, "completed": True,
+         "observation_status": "可观察", "deal_count": 0, "deal_gtv": 0,
+         "stage_before": "准头部", "promoted_to_head": True, "actual_cost": 100},
+    ])
+    result = campaign_review(candidates, enrollments, outcomes, [_campaign("C02")]).iloc[0]
+    assert result["deal_agents"] == 1
+    assert result["deal_count"] == 1
+    assert result["promoted"] == 1
+    assert result["near_top_before"] == 2
+    assert result["upgrade_rate"] == pytest.approx(0.5)
+    assert result["cost_per_new_head"] == 200

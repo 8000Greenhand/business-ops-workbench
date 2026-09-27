@@ -5,8 +5,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from ops_workbench.metrics.super_agent_campaigns import (DECLINE_REASONS, current_enrollments,
-    record_enrollment)
+from ops_workbench.metrics.super_agent_campaigns import (DECLINE_REASONS, campaign_overview,
+    current_enrollments, record_enrollment)
 from ops_workbench.ui.super_agent_dashboard import fmt_money, fmt_pct
 
 
@@ -41,15 +41,16 @@ def campaign_center(data, events: list[dict]) -> None:
     st.caption(DISCLAIMER)
     campaigns = _catalog(data)
     current = _current(data, events)
-    active = [campaign for campaign in campaigns if campaign["status"] == "进行中"]
-    total_budget = sum(campaign["budget"] for campaign in campaigns)
-    total_capacity = sum(campaign["capacity"] for campaign in campaigns)
-    enrolled = int(current["enrollment_status"].eq("已报名").sum())
+    summary = campaign_overview(data.campaigns, current)
+    st.caption("当前有效活动 = 报名中 + 进行中；跨活动推荐和报名按人次汇总，同一经纪人可计入多场活动。")
     cols = st.columns(6)
-    for col, (name, value) in zip(cols, [("进行中活动", len(active)), ("总预算", fmt_money(total_budget)),
-                                   ("总名额", total_capacity), ("系统推荐候选", len(current)),
-                                   ("城市已报名", enrolled), ("剩余名额", total_capacity - enrolled)]):
+    for col, (name, value) in zip(cols, [("当前有效活动", summary["current_campaigns"]),
+                                   ("报名中", summary["accepting"]), ("进行中", summary["running"]),
+                                   ("活动总预算", fmt_money(summary["budget"])),
+                                   ("系统推荐候选人次", summary["recommended_person_times"]),
+                                   ("城市已报名人次", summary["enrolled_person_times"])]):
         col.metric(name, value)
+    st.caption(f"当前有效活动总名额 {summary['capacity']}｜剩余名额 {summary['remaining_capacity']}。")
     st.subheader("本月活动规划")
     for campaign in campaigns:
         code = campaign["campaign_id"]
@@ -58,7 +59,7 @@ def campaign_center(data, events: list[dict]) -> None:
         with st.container(border=True):
             st.markdown(f"**{code}｜{campaign['campaign_name']}**　{campaign['campaign_type']} · {campaign['status']}")
             st.write(f"{campaign['start_date']} ～ {campaign['end_date']}｜目标：{campaign['goal_type']}｜预算 {fmt_money(campaign['budget'])}｜名额 {campaign['capacity']}")
-            st.caption(f"系统推荐 {len(subset)}｜城市报名 {chosen}｜剩余名额 {campaign['capacity'] - chosen}")
+            st.caption(f"系统推荐 {len(subset)} 人｜城市报名 {chosen} 人｜剩余名额 {campaign['capacity'] - chosen} 人")
     labels = [f"{campaign['campaign_id']}｜{campaign['campaign_name']}" for campaign in campaigns]
     selected = st.selectbox("选择活动查看规则与候选", labels, index=1)
     campaign = campaigns[labels.index(selected)]
@@ -139,22 +140,28 @@ def campaign_review_view(data, events: list[dict]) -> None:
     labels = [f"{row.campaign_id}｜{row.campaign_name}" for row in data.campaign_kpis.itertuples()]
     selected = st.selectbox("选择历史活动", labels, index=1)
     k = data.campaign_kpis.iloc[labels.index(selected)]
-    st.markdown("**成交**")
-    cols = st.columns(4)
-    for col, (label, value) in zip(cols, [("参与经纪人数", k["participated"]), ("产生成交人数", k["deal_agents"]),
-                                    ("成交单量", k["deal_count"]), ("成交金额", fmt_money(k["deal_gtv"]))]):
-        col.metric(label, value)
-    st.markdown("**头部晋级**")
-    cols = st.columns(3)
-    for col, (label, value) in zip(cols, [("活动前准头部人数", k["near_top_before"]), ("晋级头部人数", k["promoted"]),
-                                    ("晋级率", fmt_pct(k["upgrade_rate"]))]):
-        col.metric(label, value)
-    st.subheader("活动执行漏斗")
+    st.subheader("经营结果（并列观察）")
+    deal_col, promotion_col = st.columns(2)
+    with deal_col, st.container(border=True):
+        st.markdown("**成交结果**")
+        cols = st.columns(2)
+        cols[0].metric("参与经纪人数", k["participated"])
+        cols[1].metric("产生成交人数", k["deal_agents"])
+        cols = st.columns(2)
+        cols[0].metric("成交单量", k["deal_count"])
+        cols[1].metric("成交金额", fmt_money(k["deal_gtv"]))
+    with promotion_col, st.container(border=True):
+        st.markdown("**晋级结果**")
+        cols = st.columns(2)
+        cols[0].metric("活动前准头部人数", k["near_top_before"])
+        cols[1].metric("晋级头部人数", k["promoted"])
+        st.metric("晋级率", fmt_pct(k["upgrade_rate"]))
+    st.subheader("活动执行过程")
     st.dataframe(pd.DataFrame([{"环节": label, "人数": int(k[field])} for label, field in
                                (("系统推荐", "recommended"), ("城市报名", "enrolled"), ("确认参与", "participated"),
-                                ("活动完成", "completed"), ("产生成交", "deal_agents"), ("晋级头部", "promoted"))]),
+                                ("活动完成", "completed"))]),
                  hide_index=True, width="stretch")
-    st.caption(f"可观察 {k['observable']} 人｜样本不足 {k['insufficient']} 人。未参与和观察不足不当作零成交。")
+    st.caption(f"活动完成后并列观察成交和晋级；可观察 {k['observable']} 人｜样本不足 {k['insufficient']} 人。未参与和观察不足不当作零成交。")
     st.subheader("资源效率")
     cols = st.columns(3)
     for col, (label, value) in zip(cols, [("活动预算", fmt_money(k["budget"])), ("实际成本", fmt_money(k["actual_cost"])),

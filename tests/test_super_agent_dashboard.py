@@ -22,6 +22,15 @@ def test_dashboard_and_chinese_formats():
     assert decision_table(deferred)["容量状态"].iloc[0] == "容量递延"
 
 
+def test_v1_fixed_seed_priority_regression():
+    data = build_dashboard()
+    assert data.agents["priority"].value_counts().to_dict() == {"P0": 60, "P1": 814, "P2": 326}
+    assert int(data.agents["priority_score"].ge(data.policy["priority"]["p0_threshold"]).sum()) == 167
+    assert int(data.agents["capacity_deferred"].sum()) == 107
+    assert data.agents["stage"].nunique() == 6
+    assert data.agents.groupby("manager_id")["priority"].apply(lambda values: values.eq("P0").sum()).max() <= 5
+
+
 def test_six_views_smoke():
     app = AppTest.from_file(str(PAGE), default_timeout=60).run()
     assert not app.exception
