@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 import random
 
 import pandas as pd
@@ -10,12 +11,14 @@ import pandas as pd
 from ops_workbench.diagnostics.super_agent import (action_kpis, attach_touch_history,
     diagnose, load_actions, prioritize, recommend)
 from ops_workbench.metrics.super_agent import build_snapshots, load_policy, transition_kpis
+from ops_workbench.metrics.super_agent_campaigns import (campaign_review, generate_candidates,
+    load_campaigns, simulate_historical_campaigns)
 from ops_workbench.simulation.super_agent import simulate_agents, simulated_action_cohort
 
 
 @dataclass(frozen=True)
 class Dashboard:
-    """All derived demo tables used by the five views."""
+    """All derived demo tables used by the six views."""
 
     agents: pd.DataFrame
     facts: pd.DataFrame
@@ -27,6 +30,13 @@ class Dashboard:
     kpis: dict
     action_kpis: dict
     policy: dict
+    campaigns: pd.DataFrame
+    campaign_rules: pd.DataFrame
+    campaign_candidates: pd.DataFrame
+    historical_campaign_candidates: pd.DataFrame
+    historical_campaign_enrollments: pd.DataFrame
+    historical_campaign_outcomes: pd.DataFrame
+    campaign_kpis: pd.DataFrame
 
 
 def build_dashboard() -> Dashboard:
@@ -65,8 +75,37 @@ def build_dashboard() -> Dashboard:
     ids = agents["agent_id"].tolist()
     random.Random(policy["seed"]).shuffle(ids)
     exposure = pd.DataFrame({"agent_id": ids, "实验分组": ["实验组" if i % 2 == 0 else "对照组" for i in range(len(ids))]})
-    return Dashboard(agents, facts, history, recommendations, historical_recommendations, log, exposure, kpis,
-                     action_kpis(historical_recommendations, log, history, facts, policy), policy)
+    campaign_config = load_campaigns()
+    campaign_list = campaign_config["campaigns"]
+    current_candidates = generate_candidates(agents, campaign_list, as_of)
+    best_activity = (current_candidates.loc[current_candidates["eligible_flag"]]
+                     .sort_values(["activity_fit_score", "campaign_id"], ascending=[False, True])
+                     .drop_duplicates("agent_id"))
+    names = {campaign["campaign_id"]: campaign["campaign_name"] for campaign in campaign_list}
+    activity_columns = best_activity[["agent_id", "campaign_id", "activity_fit_score", "recommendation_reason"]].rename(
+        columns={"campaign_id": "activity_campaign_id", "recommendation_reason": "activity_reason"})
+    agents = agents.merge(activity_columns, on="agent_id", how="left", validate="one_to_one")
+    agents["activity_recommendation"] = agents["activity_campaign_id"].map(names).map(
+        lambda name: f"建议报名「{name}」" if pd.notna(name) else "")
+    historical_at = as_of - timedelta(days=42)
+    historical_agents, _ = build_snapshots(master, facts.loc[facts["date"] <= historical_at], policy)
+    historical_agents = diagnose(historical_agents, policy)
+    historical_candidates = generate_candidates(historical_agents, campaign_list, historical_at)
+    historical_enrollments, historical_outcomes = simulate_historical_campaigns(
+        historical_candidates, campaign_list, facts, history, campaign_config, historical_at)
+    return Dashboard(
+        agents=agents, facts=facts, history=history, recommendations=recommendations,
+        historical_recommendations=historical_recommendations, action_log=log,
+        campaign_exposure=exposure, kpis=kpis,
+        action_kpis=action_kpis(historical_recommendations, log, history, facts, policy), policy=policy,
+        campaigns=pd.DataFrame([{key: value for key, value in campaign.items() if key != "rule"} for campaign in campaign_list]),
+        campaign_rules=pd.DataFrame([{"campaign_id": campaign["campaign_id"], **campaign["rule"]} for campaign in campaign_list]),
+        campaign_candidates=current_candidates,
+        historical_campaign_candidates=historical_candidates,
+        historical_campaign_enrollments=historical_enrollments,
+        historical_campaign_outcomes=historical_outcomes,
+        campaign_kpis=campaign_review(historical_candidates, historical_enrollments, historical_outcomes, campaign_list),
+    )
 
 
 def fmt_pct(value: float | None) -> str:

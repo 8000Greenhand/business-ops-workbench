@@ -1,4 +1,4 @@
-"""Five-view local Streamlit smoke and readable derived data."""
+"""Six-view local Streamlit smoke and readable derived data."""
 
 from pathlib import Path
 
@@ -22,12 +22,13 @@ def test_dashboard_and_chinese_formats():
     assert decision_table(deferred)["容量状态"].iloc[0] == "容量递延"
 
 
-def test_five_views_smoke():
+def test_six_views_smoke():
     app = AppTest.from_file(str(PAGE), default_timeout=60).run()
     assert not app.exception
     assert any(item.value == "城市经营对比" for item in app.subheader)
     for name, marker in [("成长漏斗", "成长阶段"), ("经营决策中心", "推荐动作 Top3"),
-                         ("城市经理工作台", "先选择城市经理"), ("策略实验与复盘", "模拟活动实验")]:
+                         ("活动策略中心", "选择活动查看规则与候选"),
+                         ("城市经理工作台", "先选择城市经理"), ("策略与活动复盘", "模拟活动实验")]:
         app.radio[0].set_value(name).run()
         assert not app.exception, name
         labels = [item.value for item in app.subheader] + [item.label for item in app.selectbox]
@@ -36,7 +37,7 @@ def test_five_views_smoke():
 
 def test_p0_task_session_sync_without_historical_effects():
     app = AppTest.from_file(str(PAGE), default_timeout=60).run()
-    app.radio[0].set_value("策略实验与复盘").run()
+    app.radio[0].set_value("策略与活动复盘").run()
     historical = [metric.value for metric in app.metric if metric.label == "执行人数"][0]
     app.radio[0].set_value("城市经理工作台").run()
     assert app.radio[1].value == "P0 本周重点"
@@ -58,7 +59,7 @@ def test_p0_task_session_sync_without_historical_effects():
     app.radio[1].set_value("已处理").run()
     next(box for box in app.selectbox if box.label == "选择任务").set_value(skip_name).run()
     assert any("跳过原因：动作不适用" in item.value for item in app.caption)
-    app.radio[0].set_value("策略实验与复盘").run()
+    app.radio[0].set_value("策略与活动复盘").run()
     assert [metric.value for metric in app.metric if metric.label == "执行人数"][0] == historical
     assert any(metric.label == "已执行" and metric.value == "1" for metric in app.metric)
     assert any(metric.label == "跳过" and metric.value == "1" for metric in app.metric)

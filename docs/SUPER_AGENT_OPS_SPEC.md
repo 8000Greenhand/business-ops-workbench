@@ -12,6 +12,14 @@
 
 配置分别保存在 `config/super_agent_ops.yaml` 和 `config/super_agent_actions.yaml`。所有阈值仅为模拟压力测试口径。`agent_master` 和 `agent_daily_metrics` 由 `simulation/super_agent.py` 生成；`strategy_rule_config` 与 `action_catalog` 来自 YAML；`agent_stage_snapshot`、`agent_action_recommendation`、`operation_action_log` 和 `campaign_exposure` 为内存 DataFrame，不使用数据库或外部服务。
 
+## V2 活动策略经营闭环（仅本地分支）
+
+策略中台按月配置活动 → 系统按独立的 Activity Eligibility 和 Activity Fit 生成候选 → 对应城市经理在模拟角色视图中报名或记录不参加原因 → 历史模拟周期观察参与、完成、成交和晋级 → 按同一 `campaign_id + agent_id` cohort 复盘。V1 的生命周期、Potential、Confidence、瓶颈、Priority 与普通 NBA 不因活动改变。活动候选可与 P0、P1 或 P2 同时存在；候选不自动报名，报名也不等于参加。
+
+`config/super_agent_campaigns.yaml` 配置 C01 高潜成长计划、C02 准头部晋级挑战、C03 成交转化训练营及各自的模拟规则、Fit 权重、预算和名额。`campaign_master`、`campaign_rule`、`campaign_candidate`、`campaign_enrollment`、`campaign_outcome` 使用 YAML 与内存 DataFrame 实现。候选归属沿用原有 `manager_id`。当前报名仅保存在 `st.session_state["super_agent_campaign_events"]`，名额和预算在报名时校验；历史活动以固定 Seed 决策、真实模拟日事实及周快照派生观察结果，绝不受当前会话点击影响。报名占用模拟预算，实际成本仅在历史参与后计入。
+
+六个页面为经营总览、成长漏斗、经营决策中心、活动策略中心、城市经理工作台、策略与活动复盘。活动复盘先看成交与头部晋级，再看同 cohort 执行漏斗和资源效率。历史漏斗的成交和晋级仅在已完成且可观察的参与者中统计；观察不足显示“样本不足”，零分母显示“不可用”。普通前后对比与固定 Seed 分组均不能证明因果增量。V2 只在 `feature/super-agent-ops-v2-campaigns` 本地验收，V1 公网分支保持不变。
+
 ## 口径与局限
 
 - 周快照的阶段互斥。头部达标立即进入新晋，连续达标进入稳定；首次失守保留头部并打风险标签；连续失守后回落。高潜和准头部需确认周期，极端沉默可立即回落。

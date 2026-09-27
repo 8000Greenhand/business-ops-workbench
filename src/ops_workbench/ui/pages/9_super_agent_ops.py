@@ -9,6 +9,9 @@ from ops_workbench.metrics.super_agent import HEAD
 from ops_workbench.diagnostics.super_agent import BOTTLENECKS, load_actions
 from ops_workbench.ui.super_agent_dashboard import (build_dashboard, decision_table, fmt_money, fmt_pct,
     record_session_event, session_progress, task_statuses)
+from ops_workbench.metrics.super_agent_campaigns import current_enrollments
+from ops_workbench.ui.super_agent_campaign_views import (campaign_center, campaign_review_view,
+    manager_campaigns)
 from ops_workbench.ui.components.common import configure_page
 
 
@@ -19,6 +22,10 @@ def _data():
 
 def _events() -> list[dict]:
     return st.session_state.setdefault("super_agent_action_events", [])
+
+
+def _campaign_events() -> list[dict]:
+    return st.session_state.setdefault("super_agent_campaign_events", [])
 
 
 def _overview(data) -> None:
@@ -50,6 +57,9 @@ def _overview(data) -> None:
     st.subheader("本周执行负荷")
     load = data.agents.loc[data.agents["priority"] == "P0"].groupby("manager_name").size().rename("待处理").reset_index().rename(columns={"manager_name": "城市经理"})
     st.dataframe(load, hide_index=True, width="stretch")
+    st.subheader("本月活动")
+    current = current_enrollments(data.campaign_candidates, _campaign_events())
+    st.write(f"进行中活动 {int(data.campaigns['status'].eq('进行中').sum())} 场｜系统推荐候选 {len(current)} 人次｜城市已报名 {int(current['enrollment_status'].eq('已报名').sum())} 人次。活动口径为模拟数据。")
 
 
 def _funnel(data) -> None:
@@ -132,6 +142,11 @@ def _decision(data) -> None:
     actions = data.recommendations.loc[data.recommendations["agent_id"] == row["agent_id"]]
     st.subheader("推荐动作 Top3")
     st.dataframe(actions.loc[actions["rank_no"].between(1, 3), ["rank_no", "action_name", "reason_text", "recommendation_score", "valid_until"]].rename(columns={"rank_no": "排序", "action_name": "动作", "reason_text": "理由", "recommendation_score": "推荐分", "valid_until": "有效期"}), hide_index=True, width="stretch")
+    st.subheader("当前可承接活动")
+    if row["activity_recommendation"]:
+        st.write(f"{row['activity_recommendation']}｜活动匹配分 {row['activity_fit_score']:.1f}。{row['activity_reason']}")
+    else:
+        st.write("当前无匹配活动。普通首选动作仍按原经营建议执行。")
     last_touch = str(row["last_action_at"].date()) if pd.notna(row["last_action_at"]) else "无"
     st.write(f"最近触达：{last_touch}；近7/14/30天：{row['touches_7d']}/{row['touches_14d']}/{row['touches_30d']}次")
     st.write("历史阶段：" + " → ".join(data.history.loc[data.history["agent_id"] == row["agent_id"], "stage"].tolist()))
@@ -139,8 +154,8 @@ def _decision(data) -> None:
         st.dataframe(actions.loc[actions["suppressed_flag"], ["action_name", "suppression_reason"]].rename(columns={"action_name": "动作", "suppression_reason": "抑制原因"}), hide_index=True, width="stretch")
 
 
-def _tasks(data) -> None:
-    manager = st.selectbox("先选择城市经理", sorted(data.agents["manager_name"].unique()))
+def _nba_tasks(data, manager: str) -> None:
+    """Render the preserved V1 manager action queue for one manager."""
     agents = data.agents.loc[data.agents["manager_name"] == manager]
     tasks = agents.loc[agents["priority"].isin(["P0", "P1"])].sort_values("priority_score", ascending=False)
     st.caption("演示状态仅在当前会话有效，刷新后可能重置。")
@@ -198,6 +213,21 @@ def _tasks(data) -> None:
                 st.rerun()
 
 
+def _tasks(data) -> None:
+    st.caption("模拟角色视图：选择当前城市经理后，仅显示其负责的任务、活动候选和报名记录。")
+    manager_options = sorted(data.agents["manager_name"].unique())
+    c02 = data.campaign_candidates.loc[(data.campaign_candidates["campaign_id"] == "C02") & data.campaign_candidates["eligible_flag"]]
+    counts = c02.groupby("manager_name").size().sort_values(ascending=False, kind="stable")
+    default_manager = counts.index[0] if not counts.empty else manager_options[0]
+    manager = st.selectbox("先选择城市经理", manager_options, index=manager_options.index(default_manager))
+    manager_id = data.agents.loc[data.agents["manager_name"] == manager, "manager_id"].iloc[0]
+    nba_tab, campaign_tab = st.tabs(["重点经营任务", "我的活动"])
+    with nba_tab:
+        _nba_tasks(data, manager)
+    with campaign_tab:
+        manager_campaigns(data, _campaign_events(), manager_id)
+
+
 def _review(data) -> None:
     k = data.action_kpis
     st.subheader("本次会话执行进度")
@@ -236,6 +266,7 @@ def _review(data) -> None:
     rates = experiment["活动后晋级"].div(experiment["活动前准头部"].where(experiment["活动前准头部"].ne(0)))
     st.write("晋级率差异：" + fmt_pct(rates.get("实验组") - rates.get("对照组")))
     st.caption("分组仅为固定规则模拟展示；普通前后对比不能直接证明因果。真实效果需随机分组、曝光记录与成本核算。")
+    campaign_review_view(data, _campaign_events())
 
 
 def main() -> None:
@@ -252,9 +283,10 @@ def main() -> None:
     st.caption("模拟经营口径 / Demo 数据｜成都、重庆、武汉、西安及经纪人、城市经理均为虚构演示。")
     st.info("当前头部、高潜、准头部等标准均为可配置模拟参数，不代表贝壳真实内部口径。")
     data = _data()
-    view = st.radio("产品视图", ["经营总览", "成长漏斗", "经营决策中心", "城市经理工作台", "策略实验与复盘"], horizontal=True)
+    view = st.radio("产品视图", ["经营总览", "成长漏斗", "经营决策中心", "活动策略中心", "城市经理工作台", "策略与活动复盘"], horizontal=True)
     {"经营总览": _overview, "成长漏斗": _funnel, "经营决策中心": _decision,
-     "城市经理工作台": _tasks, "策略实验与复盘": _review}[view](data)
+     "活动策略中心": lambda value: campaign_center(value, _campaign_events()),
+     "城市经理工作台": _tasks, "策略与活动复盘": _review}[view](data)
 
 
 main()
