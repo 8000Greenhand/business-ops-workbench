@@ -73,13 +73,13 @@ def campaign_center(data, events: list[dict]) -> None:
     st.write(f"预算 {fmt_money(campaign['budget'])}｜名额 {campaign['capacity']}｜单人预算占用 {fmt_money(campaign['unit_cost'])}｜匹配分权重：{', '.join(f'{FIT_LABELS.get(key, key)} {fmt_pct(weight)}' for key, weight in rule['activity_fit_weights'].items())}")
     st.subheader("系统候选池与城市选择")
     pool = current.loc[current["campaign_id"] == campaign["campaign_id"]].sort_values("recommendation_rank")
-    table = pd.DataFrame({"经纪人": pool["agent_name"], "城市": pool["city"], "城市经理": pool["manager_name"],
+    table = pd.DataFrame({"经纪人": pool["agent_name"], "报名状态": pool["enrollment_status"],
+                          "不参加原因": pool["decline_reason"], "城市": pool["city"], "城市经理": pool["manager_name"],
                           "生命周期": pool["stage"], "优先级": pool["priority"],
                           "潜力分": pool["potential_score"].map(lambda x: "不可用" if pd.isna(x) else f"{x:.1f}"),
                           "置信度": pool["confidence"].map(fmt_pct), "头部完成度": pool["top_progress"].map(fmt_pct),
                           "主瓶颈": pool["primary_bottleneck"].map(lambda x: BOTTLENECK_LABELS.get(x, x)), "活动匹配分": pool["activity_fit_score"].map(lambda x: f"{x:.1f}"),
-                          "推荐原因": pool["recommendation_reason"], "报名状态": pool["enrollment_status"],
-                          "不参加原因": pool["decline_reason"]})
+                          "推荐原因": pool["recommendation_reason"]})
     st.dataframe(table, hide_index=True, width="stretch", height=370)
     st.caption("系统推荐只表示满足模拟活动规则；报名由城市经理选择，推荐不等于报名或实际参加。")
 

@@ -32,6 +32,7 @@ def test_campaign_center_manager_choice_review_same_session():
     assert _metric(app, "报名中") == "2"
     assert _metric(app, "进行中") == "1"
     assert int(_metric(app, "系统推荐候选人次")) > len(_enrollments(app))
+    assert _enrollments(app).columns[:3].tolist() == ["经纪人", "报名状态", "不参加原因"]
     assert _enrollments(app)["报名状态"].eq("待选择").all()
     app.radio[0].set_value("策略与活动复盘").run()
     assert not app.exception
