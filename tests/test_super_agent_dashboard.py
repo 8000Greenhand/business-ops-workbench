@@ -4,7 +4,8 @@ from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
-from ops_workbench.ui.super_agent_dashboard import build_dashboard, decision_table, fmt_pct
+from ops_workbench.ui.super_agent_dashboard import (BOTTLENECK_FILTER_OPTIONS, BOTTLENECK_UI_LABELS,
+    build_dashboard, decision_table, fmt_pct)
 
 
 PAGE = Path(__file__).resolve().parents[1] / "src" / "ops_workbench" / "ui" / "pages" / "9_super_agent_ops.py"
@@ -16,6 +17,13 @@ def test_dashboard_and_chinese_formats():
     assert len(table) == 2
     assert table["头部完成度"].str.endswith("%").all()
     assert fmt_pct(None) == "不可用"
+    assert table.columns.get_loc("潜力分") + 1 == table.columns.get_loc("同群潜力百分位")
+    assert table.columns.get_loc("同群潜力百分位") + 1 == table.columns.get_loc("置信度")
+    sample = data.agents.loc[data.agents["potential_percentile"].notna()].head(1)
+    assert decision_table(sample)["同群潜力百分位"].iloc[0] == fmt_pct(sample["potential_percentile"].iloc[0])
+    missing = data.agents.loc[data.agents["potential_percentile"].isna()].head(1)
+    assert decision_table(missing)["同群潜力百分位"].iloc[0] == "不可用"
+    assert decision_table(missing)["潜力分"].iloc[0] == "不可用"
     assert data.kpis["head_count"] == data.kpis["new_head_count"] + data.kpis["stable_head_count"]
     assert data.agents.loc[data.agents["stage"].isin(["新晋头部", "稳定头部"]), "potential_score"].isna().all()
     deferred = data.agents.loc[data.agents["capacity_deferred"]].head(1)
@@ -29,6 +37,52 @@ def test_v1_fixed_seed_priority_regression():
     assert int(data.agents["capacity_deferred"].sum()) == 107
     assert data.agents["stage"].nunique() == 6
     assert data.agents.groupby("manager_id")["priority"].apply(lambda values: values.eq("P0").sum()).max() <= 5
+
+
+def test_decision_bottleneck_filter_uses_chinese_labels_and_raw_codes():
+    assert list(BOTTLENECK_FILTER_OPTIONS) == ["全部", "商机资源", "商机承接", "有效跟进", "带看转化", "成交转化"]
+    assert BOTTLENECK_FILTER_OPTIONS["商机资源"] == "resource"
+    assert BOTTLENECK_FILTER_OPTIONS["成交转化"] == "closing"
+    assert BOTTLENECK_UI_LABELS["acceptance"] == "商机承接"
+    assert BOTTLENECK_UI_LABELS["showing"] == "带看转化"
+    app = AppTest.from_file(str(PAGE), default_timeout=60).run()
+    app.radio[0].set_value("经营决策中心").run()
+    box = next(item for item in app.selectbox if item.label == "主瓶颈")
+    assert box.options == list(BOTTLENECK_FILTER_OPTIONS)
+    data = build_dashboard()
+    for label in ("成交转化", "商机资源"):
+        box.set_value(label).run()
+        assert not app.exception
+        shown = app.dataframe[0].value
+        assert not shown.empty
+        expected = data.agents.loc[data.agents["priority"].isin(["P0", "P1"]) &
+                                   data.agents["primary_bottleneck"].eq(BOTTLENECK_FILTER_OPTIONS[label]), "agent_name"]
+        assert set(shown["经纪人"]).issubset(set(expected))
+        assert shown["主瓶颈"].eq(label).all()
+        box = next(item for item in app.selectbox if item.label == "主瓶颈")
+
+
+def test_decision_detail_explains_potential_percentile_and_confidence():
+    data = build_dashboard()
+    candidate = data.agents.loc[data.agents["priority"].isin(["P0", "P1"]) &
+                                data.agents["potential_percentile"].notna()].iloc[0]
+    app = AppTest.from_file(str(PAGE), default_timeout=60).run()
+    app.radio[0].set_value("经营决策中心").run()
+    table = app.dataframe[0].value
+    assert table.columns[4:7].tolist() == ["潜力分", "同群潜力百分位", "置信度"]
+    next(item for item in app.selectbox if item.label == "查看经纪人详情").set_value(candidate["agent_name"]).run()
+    metrics = {item.label: item.value for item in app.metric}
+    assert metrics["潜力分"] == f"{candidate['potential_score']:.1f}"
+    assert metrics["同群潜力百分位"] == fmt_pct(candidate["potential_percentile"])
+    assert metrics["置信度"] in {"高", "中", "低"}
+    assert any("比较同群：" in item.value and "样本" in item.value for item in app.markdown)
+    head = data.agents.loc[data.agents["priority"].isin(["P0", "P1"]) &
+                           data.agents["potential_score"].isna()].iloc[0]
+    next(item for item in app.selectbox if item.label == "查看经纪人详情").set_value(head["agent_name"]).run()
+    metrics = {item.label: item.value for item in app.metric}
+    assert metrics["潜力分"] == "不可用"
+    assert metrics["同群潜力百分位"] == "不可用"
+    assert not app.exception
 
 
 def test_six_views_smoke():

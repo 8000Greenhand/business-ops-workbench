@@ -111,6 +111,12 @@ def fmt_money(value: float | None) -> str:
     return f"¥{value / 10000:,.1f}万" if abs(value) >= 10000 else f"¥{value:,.0f}"
 
 
+BOTTLENECK_FILTER_OPTIONS = {"全部": None, "商机资源": "resource", "商机承接": "acceptance",
+                             "有效跟进": "followup", "带看转化": "showing", "成交转化": "closing"}
+BOTTLENECK_UI_LABELS = {code: label for label, code in BOTTLENECK_FILTER_OPTIONS.items() if code is not None}
+BOTTLENECK_UI_LABELS["none"] = "未见持续异常"
+
+
 def task_statuses(agents: pd.DataFrame, events: list[dict], as_of) -> dict[str, str]:
     """Resolve shared current-session task states by recommendation identity."""
     latest = {event["recommendation_id"]: event for event in events}
@@ -156,11 +162,11 @@ def decision_table(agents: pd.DataFrame, statuses: dict[str, str] | None = None)
         "城市": agents["city"], "负责人": agents["manager_name"],
         "生命周期": agents["stage"], "头部完成度": agents["top_progress"].map(fmt_pct),
         "头部差距维度": agents["top_gap_dimension"].map({"deal_count": "成交量", "deal_gtv": "成交额"}),
-        "潜力分": agents["potential_score"].map(lambda x: "不适用" if pd.isna(x) else f"{x:.1f}"),
-        "潜力百分位": agents["potential_percentile"].map(fmt_pct),
+        "潜力分": agents["potential_score"].map(lambda x: "不可用" if pd.isna(x) else f"{x:.1f}"),
+        "同群潜力百分位": agents["potential_percentile"].map(fmt_pct),
         "置信度": agents["confidence"].map(lambda x: "高" if x >= 0.8 else "中" if x >= 0.65 else "低"),
         "趋势": agents["growth_score"].map(lambda x: "上行" if x >= 60 else "平稳" if x >= 40 else "转弱"),
-        "主瓶颈": agents["primary_bottleneck"].map({"none": "未见持续异常", "resource": "商机资源", "acceptance": "承接", "followup": "有效跟进", "showing": "带看", "closing": "成交转化"}),
+        "主瓶颈": agents["primary_bottleneck"].map(BOTTLENECK_UI_LABELS),
         "优先级": agents["priority"], "容量状态": agents["capacity_deferred"].map(lambda x: "容量递延" if x else ""),
         "首选动作": agents["primary_action"].fillna("继续观察"),
         "推荐原因": agents["recommendation_reason"].fillna("样本不足，继续观察"),

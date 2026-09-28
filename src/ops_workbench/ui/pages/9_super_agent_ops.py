@@ -6,8 +6,9 @@ import pandas as pd
 import streamlit as st
 
 from ops_workbench.metrics.super_agent import HEAD
-from ops_workbench.diagnostics.super_agent import BOTTLENECKS, load_actions
-from ops_workbench.ui.super_agent_dashboard import (build_dashboard, decision_table, fmt_money, fmt_pct,
+from ops_workbench.diagnostics.super_agent import load_actions
+from ops_workbench.ui.super_agent_dashboard import (BOTTLENECK_FILTER_OPTIONS, BOTTLENECK_UI_LABELS,
+    build_dashboard, decision_table, fmt_money, fmt_pct,
     record_session_event, session_progress, task_statuses)
 from ops_workbench.metrics.super_agent_campaigns import (campaign_overview, current_enrollments,
     matched_campaigns_for_agent)
@@ -44,7 +45,7 @@ def _overview(data) -> None:
     near_count = int(cities.iloc[0]) if not cities.empty else 0
     city_p0 = int(((priority["city"] == city_name) & priority["stage"].eq("准头部")).sum())
     issue_counts = priority.loc[priority["primary_bottleneck"] != "none", "primary_bottleneck"].value_counts()
-    issue = BOTTLENECKS[issue_counts.index[0]] if not issue_counts.empty else "暂无集中异常"
+    issue = BOTTLENECK_UI_LABELS[issue_counts.index[0]] if not issue_counts.empty else "暂无集中异常"
     risks = int((data.agents["stage"].eq("稳定头部") & data.agents["top_at_risk"]).sum())
     st.write(f"{city_name}当前有 {near_count} 名准头部，其中 {city_p0} 名进入P0；本周重点对象的主要瓶颈为{issue}；{risks} 名稳定头部出现失守风险。以上均为模拟观察。")
     st.subheader("成长结构")
@@ -97,6 +98,7 @@ def _decision(data) -> None:
     for col, (label, field) in zip(cols, [("城市", "city"), ("城市经理", "manager_name"), ("生命周期", "stage"),
                                           ("优先级", "priority"), ("主瓶颈", "primary_bottleneck"), ("置信度", "confidence")]):
         values = (["P0/P1", "P0", "P1", "P2", "全部"] if field == "priority" else
+                  list(BOTTLENECK_FILTER_OPTIONS) if field == "primary_bottleneck" else
                   ["全部"] + (["低", "中", "高"] if field == "confidence" else sorted(frame[field].dropna().unique().tolist())))
         chosen = col.selectbox(label, values, key=f"filter_{field}")
         if chosen == "P0/P1":
@@ -104,13 +106,15 @@ def _decision(data) -> None:
         elif chosen != "全部":
             if field == "confidence":
                 frame = frame.loc[frame["confidence"].map(lambda x: "高" if x >= 0.8 else "中" if x >= 0.65 else "低") == chosen]
+            elif field == "primary_bottleneck":
+                frame = frame.loc[frame[field] == BOTTLENECK_FILTER_OPTIONS[chosen]]
             else:
                 frame = frame.loc[frame[field] == chosen]
     frame = frame.sort_values(["priority", "priority_score"], ascending=[True, False])
     st.caption("默认优先显示 P0 / P1；P2 可从优先级筛选查看。主瓶颈只由持续或极端同群偏低信号触发。")
     statuses = task_statuses(data.agents, _events(), data.facts["date"].max())
     table = decision_table(frame, statuses)
-    first = ["优先级", "经纪人", "生命周期", "头部完成度", "潜力分", "置信度", "主瓶颈", "趋势", "首选动作", "推荐原因", "负责人", "任务状态"]
+    first = ["优先级", "经纪人", "生命周期", "头部完成度", "潜力分", "同群潜力百分位", "置信度", "主瓶颈", "趋势", "首选动作", "推荐原因", "负责人", "任务状态"]
     st.dataframe(table[first], hide_index=True, width="stretch", height=470)
     if frame.empty:
         st.info("当前筛选没有经纪人。")
@@ -127,7 +131,12 @@ def _decision(data) -> None:
     st.markdown(f"**事实｜{choice}：近28天成交 {int(row['deal_count'])} 单，成交额 {fmt_money(row['deal_gtv'])}；近56天带看 {int(row['showings_56d'])} 次，观测 {int(row['observed_days_56d'])} 天。**")
     gap = {"deal_count": "成交量", "deal_gtv": "成交额"}.get(row["top_gap_dimension"], "不可用")
     confidence_label = "高" if row["confidence"] >= 0.8 else "中" if row["confidence"] >= 0.65 else "低"
-    st.write(f"同群：{row['peer_scope']}（样本 {int(row['peer_sample_size'])}）；潜力百分位 {fmt_pct(row['potential_percentile'])}；置信度 {confidence_label}；头部差距 {gap}。")
+    st.write(f"比较同群：{row['peer_scope']}（样本 {int(row['peer_sample_size'])}）；头部差距 {gap}。")
+    score, percentile, confidence = st.columns(3)
+    score.metric("潜力分", "不可用" if pd.isna(row["potential_score"]) else f"{row['potential_score']:.1f}")
+    percentile.metric("同群潜力百分位", fmt_pct(row["potential_percentile"]))
+    confidence.metric("置信度", confidence_label)
+    st.caption("潜力分看成长信号强度；同群潜力百分位看其在可比经纪人中的相对位置；置信度反映当前判断的证据可靠程度。")
     ratios = pd.DataFrame({"环节": ["商机→承接", "承接→跟进", "跟进→带看", "带看→成交（56天）"],
         "本人": [fmt_pct(row[x]) for x in ("acceptance_rate", "followup_rate", "showing_rate", "closing_56d")],
         "同群百分位": [fmt_pct(row[x]) for x in ("acceptance_rate_pct", "followup_rate_pct", "showing_rate_pct", "closing_rate_pct")]})
@@ -136,7 +145,7 @@ def _decision(data) -> None:
         st.write("潜力分不适用：当前处于头部阶段，或缺少可计算证据。")
     else:
         st.write("潜力拆解：" + "｜".join(f"{label} {row[key]:.1f}" if pd.notna(row[key]) else f"{label} 不可用" for label, key in [("成长", "growth_score"), ("转化", "conversion_score"), ("稳定", "stability_score"), ("可经营空间", "headroom_score")]))
-    st.write(f"诊断｜{row['diagnostic_status']}；主瓶颈 {BOTTLENECKS.get(row['primary_bottleneck'], '无')}；次瓶颈 {BOTTLENECKS.get(row['secondary_bottleneck'], '无')}。")
+    st.write(f"诊断｜{row['diagnostic_status']}；主瓶颈 {BOTTLENECK_UI_LABELS.get(row['primary_bottleneck'], '未见持续异常')}；次瓶颈 {BOTTLENECK_UI_LABELS.get(row['secondary_bottleneck'], '未见持续异常')}。")
     if row["top_at_risk"]:
         st.warning("头部风险：当前周期未达到模拟头部标准，正处于保留阶段。")
     if row["capacity_deferred"]:
@@ -196,7 +205,7 @@ def _nba_tasks(data, manager: str) -> None:
     with st.container(border=True):
         st.markdown(f"**{row['priority']}｜{row['agent_name']}｜{row['stage']}｜{row['primary_action']}**")
         st.write(f"为什么现在处理：{row['recommendation_reason']}")
-        st.caption(f"主瓶颈：{BOTTLENECKS.get(row['primary_bottleneck'], '未见持续异常')}｜有效至 {row['valid_until']}｜状态：{status}" + ("｜本周期容量递延" if row["capacity_deferred"] else ""))
+        st.caption(f"主瓶颈：{BOTTLENECK_UI_LABELS.get(row['primary_bottleneck'], '未见持续异常')}｜有效至 {row['valid_until']}｜状态：{status}" + ("｜本周期容量递延" if row["capacity_deferred"] else ""))
         last_event = next((event for event in reversed(_events()) if event["recommendation_id"] == row["recommendation_id"]), None)
         if last_event and last_event["skip_reason"]:
             st.caption("跳过原因：" + last_event["skip_reason"])
